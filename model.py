@@ -8,6 +8,12 @@ from faker import Faker
 fake = Faker()
 CREATED_LOCATIONS = {fake.street_name() for _ in range(10000)}
 
+from uuid import uuid4
+
+
+def new_id():
+    return str(uuid4())[-8:]
+
 
 def random_location():
     return CREATED_LOCATIONS.pop()
@@ -15,23 +21,40 @@ def random_location():
 
 @dataclass
 class Node:
-    id: int
     name: str
-    type: str  # options: Room, Player, NPC
-    properties: dict = field(default_factory=defaultdict(str))
+    description: str = ""
+    properties: dict = field(default_factory=lambda: defaultdict(str))
+    id: str = field(default_factory=new_id)
+    type: str = "NODE"
+
+
+@dataclass
+class Player(Node):
+    is_npc: bool = True
+    type: str = "PLAYER"
+
+
+@dataclass
+class Room(Node):
+    explore_options: list[str] = field(default_factory=list)
+    coords: tuple[str, str] = (None, None)
+    type: str = "ROOM"
 
 
 @dataclass
 class Relation:
-    type: str  # options
-    properties: dict = field(default_factory=defaultdict(str))
+    description: str
 
 
-from uuid import uuid4
+@dataclass
+class RoomConnection(Relation):
+    adjacency: str
+    type: str = "CONNECTS_TO"
 
 
-def new_id():
-    return str(uuid4())[-8:]
+@dataclass
+class PlayerRoom(Relation):
+    type: str = "IS_IN"
 
 
 class Directions(Enum):
@@ -95,14 +118,11 @@ class Graph:
 
     def create_world(self, room=Defaults.START_ROOM):
         # First create a lone node which is the room.
-        first_room = Node(
-            id=new_id(),
-            type="Room",
+        first_room = Room(
             name=room,
-            properties={
-                "explore_options": list(Defaults.DIRECTIONS),
-                "description": "The starting room.",
-            },
+            description="The starting room.",
+            explore_options=list(Defaults.DIRECTIONS),
+            coords=random_location(),
         )
         self._nodes[first_room.id] = first_room  # first node doesnt need any mapping
         self._checkadd_node_name(first_room)
@@ -113,39 +133,36 @@ class Graph:
         # Select 2 random directions avaible
         import random
 
+        reverse_dir = Defaults.POLES.get(from_adjacency)
         options = list(Defaults.DIRECTIONS)
-        options.remove(from_adjacency)
-        explore_options = [from_adjacency]
+        options.remove(reverse_dir)  # remove travelling backwards first
+        explore_options = [reverse_dir]  # always an option
 
-        explore_options.extend(random.sample(options, 2))
+        explore_options.extend(random.sample(options, 1))
         print(explore_options)
-        room = Node(
-            id=new_id(),
-            type="Room",
+        room = Room(
             name=name,
-            properties={
-                "explore_options": explore_options,
-                "description": description,
-            },
+            description=description,
+            explore_options=explore_options,
+            coords=random_location(),
         )
         self.upsert_node(room)
         self._graph[room.id] = {}  # New rooms start as empty nodes on the graph
         return room
 
-    def create_player(self, name="Protagonist"):
+    def create_player(self, name="Protagonist", is_npc=False):
         # Then add the player
-        player = Node(
-            id=new_id(),
-            type="Player",
+        player = Player(
             name=name,
-            properties={"description": "The brave adventurer."},
+            is_npc=is_npc,
+            description="The brave adventurer.",
         )
         # The player always spawns in the starting room
         self.upsert_node(player)
         self.update_character_location(
             player,
             self._node_from_name(Defaults.START_ROOM),
-            {"description": "Spawned by default"},
+            "Spawned by default",
         )
 
     def upsert_node(self, node: Node):
@@ -158,14 +175,11 @@ class Graph:
         else:
             self._graph[from_node.id][to_node.id] = relation
 
-    def update_character_location(self, player, room, properties):
+    def update_character_location(self, player, room, description):
         self.upsert_rs(
             player,
             room,
-            Relation(
-                type="IS_IN",
-                properties=properties,
-            ),
+            PlayerRoom(description=description),
         )
 
     def update_room_connections(
@@ -177,9 +191,9 @@ class Graph:
         self.upsert_rs(
             old_room,
             new_room,
-            Relation(
-                type="CONNECTS_TO",
-                properties={"adjacency": adjacency},
+            RoomConnection(
+                description=f"Connection from {old_room.name} to {new_room.name}",
+                adjacency=adjacency,
             ),
         )
 
@@ -187,9 +201,9 @@ class Graph:
         self.upsert_rs(
             new_room,
             old_room,
-            Relation(
-                type="CONNECTS_TO",
-                properties={"adjacency": Defaults.POLES[adjacency]},
+            RoomConnection(
+                description=f"Connection from {new_room.name} to {old_room.name}",
+                adjacency=Defaults.POLES[adjacency],
             ),
         )
 
@@ -200,6 +214,28 @@ class Graph:
                 current_room_id = node_id
                 current_room = self._nodes[current_room_id]
                 return current_room
+
+    def get_navigation_details(self, player_name: str):
+        current_room = self._player_current_room(player_name)
+        if not current_room:
+            return None, {}
+
+        # Create a map of direction -> destination room name
+        connections = self._graph.get(current_room.id, {})
+        direction_to_room_name = {
+            rs.adjacency: self._nodes[room_id].name
+            for room_id, rs in connections.items()
+            if isinstance(rs, RoomConnection)
+        }
+
+        dialogue_options = {}
+        for direction in sorted(list(current_room.explore_options)):
+            dest_room_name = direction_to_room_name.get(direction)
+            if dest_room_name:
+                dialogue_options[direction] = f"Back to {dest_room_name}"
+            else:
+                dialogue_options[direction] = "Explore new area"
+        return current_room, dialogue_options
 
     def _process_player_move(
         self,
@@ -213,8 +249,7 @@ class Graph:
         # check if a room exists in the direction the player specified:
         next_room_id = None
         for room_id, rs in self._graph.get(current_room.id).items():
-            print(rs.properties["adjacency"], player_input)
-            if rs.type == "CONNECTS_TO" and rs.properties["adjacency"] == player_input:
+            if isinstance(rs, RoomConnection) and rs.adjacency == player_input:
                 next_room_id = room_id
         # if yes, return the room details
         if next_room_id:
@@ -239,10 +274,10 @@ class Graph:
         self.update_character_location(
             player,
             next_room,
-            {"description": f"Moved from {self._nodes[current_room.id].name}"},
+            f"Moved from {current_room.name}",
         )
 
-        return next_room.name, next_room.properties["explore_options"]
+        return next_room.name, next_room.explore_options
 
     def visualise(self):
         cp = deepcopy(self._graph)
@@ -281,12 +316,10 @@ class Graph:
         edge_labels = {}
         for from_id, relations in self._graph.items():
             for to_id, relation in relations.items():
-                if relation.type == "CONNECTS_TO":
-                    G.add_edge(
-                        from_id, to_id, adjacency=relation.properties.get("adjacency")
-                    )
-                    edge_labels[(from_id, to_id)] = relation.properties.get("adjacency")
-                elif relation.type == "IS_IN":
+                if isinstance(relation, RoomConnection):
+                    G.add_edge(from_id, to_id, adjacency=relation.adjacency)
+                    edge_labels[(from_id, to_id)] = relation.adjacency
+                elif isinstance(relation, PlayerRoom):
                     # IS_IN relations are typically between a player/NPC and a room.
                     # We don't draw these as explicit edges in the room graph visualization.
                     pass
@@ -324,6 +357,11 @@ class Graph:
         room_coords = {lobby_node.id: (0, 0)}
         queue = [lobby_node.id]
         visited = {lobby_node.id}
+        occupied_coords = {
+            (0, 0): [lobby_node.id]
+        }  # Track occupied coordinates and the rooms there
+
+        offset_step = 0.1  # Small offset to prevent direct overlap
 
         while queue:
             current_room_id = queue.pop(0)
@@ -331,25 +369,51 @@ class Graph:
 
             # Iterate over outgoing edges from the current room
             for neighbour_id, relation in self._graph.get(current_room_id, {}).items():
-                if relation.type == "CONNECTS_TO":
-                    direction = relation.properties.get("adjacency")
+                if isinstance(relation, RoomConnection):
+                    direction = relation.adjacency
 
-                    # Determine new coordinates based on direction
+                    # Determine base new coordinates based on direction
+                    base_new_coords = None
                     if direction == "N":
-                        new_coords = (x, y + 1)
+                        base_new_coords = (x, y + 1)
                     elif direction == "S":
-                        new_coords = (x, y - 1)
+                        base_new_coords = (x, y - 1)
                     elif direction == "E":
-                        new_coords = (x + 1, y)
+                        base_new_coords = (x + 1, y)
                     elif direction == "W":
-                        new_coords = (x - 1, y)
+                        base_new_coords = (x - 1, y)
                     else:
                         continue  # Skip non-directional or invalid relations
 
-                    # Only process unvisited rooms to ensure a clean grid
                     if neighbour_id not in visited:
                         visited.add(neighbour_id)
+
+                        # Check for overlap and apply offset if necessary
+                        new_coords = list(base_new_coords)
+                        offset_count = 0
+                        while tuple(new_coords) in occupied_coords:
+                            offset_count += 1
+                            # Apply a spiral-like offset
+                            if offset_count % 4 == 1:  # East
+                                new_coords[0] = (
+                                    base_new_coords[0] + offset_count * offset_step
+                                )
+                            elif offset_count % 4 == 2:  # North
+                                new_coords[1] = (
+                                    base_new_coords[1] + offset_count * offset_step
+                                )
+                            elif offset_count % 4 == 3:  # West
+                                new_coords[0] = (
+                                    base_new_coords[0] - offset_count * offset_step
+                                )
+                            else:  # South
+                                new_coords[1] = (
+                                    base_new_coords[1] - offset_count * offset_step
+                                )
+
+                        new_coords = tuple(new_coords)
                         room_coords[neighbour_id] = new_coords
+                        occupied_coords.setdefault(new_coords, []).append(neighbour_id)
                         queue.append(neighbour_id)
 
         return room_coords
@@ -400,10 +464,10 @@ class Graph:
             # Find Players/NPCs in this room (your logic is already good)
             players_in_room = []
             for node_id, node in self._nodes.items():
-                if node.type in ["Player", "NPC"]:
+                if node.type == "PLAYER":
                     player_relations = self._graph.get(node_id, {})
                     for target_id, relation in player_relations.items():
-                        if relation.type == "IS_IN" and target_id == room_id:
+                        if isinstance(relation, PlayerRoom) and target_id == room_id:
                             players_in_room.append(node.name)
                             break
 
@@ -460,7 +524,7 @@ class Graph:
                 # Find where the player is
                 player_relations = self._graph.get(node_id, {})
                 for target_id, relation in player_relations.items():
-                    if relation.type == "IS_IN":
+                    if isinstance(relation, PlayerRoom):
                         # Store player name and the room_id they are in
                         players_locations[node.name] = target_id
                         break
@@ -471,11 +535,9 @@ class Graph:
             if self._nodes[from_id].type != "Room":
                 continue  # Only draw connections between rooms
             for to_id, relation in relations.items():
-                if relation.type == "CONNECTS_TO":
+                if isinstance(relation, RoomConnection):
                     G.add_edge(from_id, to_id)
-                    edge_labels[(from_id, to_id)] = relation.properties.get(
-                        "adjacency", "?"
-                    )
+                    edge_labels[(from_id, to_id)] = relation.adjacency
 
         # 2. Use a force-directed layout to position nodes
         # This is the key step that moves away from a rigid grid.
