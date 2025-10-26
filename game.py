@@ -24,17 +24,49 @@ from dataclasses import dataclass, field
 from enum import Enum, auto
 from uuid import uuid4
 
+import fictional_names
+import fictional_names.name_generator
 import matplotlib.pyplot as plt
 from faker import Faker
+from FantasyNameGenerator.Stores import Town
 from tqdm import tqdm
 
 fake = Faker()
 
+PAUSE = 0.5
 STARTING_ROOM_COORDS = (0, 0)
-MAX_ROOM_PATHS = 3  # can only be 2,3,4
+MAX_ROOM_PATHS = 4  # can only be 2,3,4
+N_NPCS = 0
+# LLM IMPORTS
+from llm import LLMModule, create_llm_module
+
+
+@dataclass
+class PlayerEntry:
+    name: str
+    description: str
+    last_seen_room_id: str
+    interaction_history: list = field(default_factory=list)
+
+
+@dataclass
+class RoomEntry:
+    id: str
+    name: str
+    description: str
+
+
+class Memory:  # The agent's mental model of the game world from their perspective
+    def __init__(self):
+        self.known_players = {}  # {player_name: PlayerEntry}
+        self.known_rooms = {}  # {room_id: RoomEntry}
+        self.preferences = {}
 
 
 class Player:
+
+    DEFAULT_LLM_SYSTEM_PROMPT = "You are an adventurer in a text-based exploration game. Make decisions based on your surroundings and history."
+
     def __init__(
         self,
         name: str,
@@ -49,23 +81,43 @@ class Player:
             []
         )  # [(room_id, action_taken)] # actions can be `move` or `interact_with`
 
-    def auto_action(self, options: list[str], moves: dict) -> str:
-        """
-        Chooses an action for an NPC player.
-        Avoids immediately going back to the previous room to encourage exploration.
-        """
-        if not self.history:
-            return random.choice(options)
+        self.agent_engine = None  # Placeholder for future AI integration
+        self.memory = Memory()
+        self.llm_module: LLMModule = create_llm_module(self.DEFAULT_LLM_SYSTEM_PROMPT)
+        self.description: str = self.llm_module.get_response(
+            f"Provide a 20-word brief description of your character named {self.name}."
+        )
 
-        last_direction = self.history[-1][1]
-        opposite_direction = moves[last_direction].pole
+    def move_or_act(self) -> str:
+        return random.choice(
+            [
+                "MOVE",
+                "ACT",
+            ]
+        )
 
-        preferred_options = [opt for opt in options if opt != opposite_direction]
+    def decide_action(self, options: list[str], actions: dict) -> str:
+        # Placeholder for future action decision logic
+        return "OBSERVE"
 
-        if preferred_options:
-            return random.choice(preferred_options)
+    def decide_move(self, options: list[str], moves: dict) -> str:
+
+        if self.is_npc:
+            if not self.history:
+                return random.choice(options)
+
+            last_direction = self.history[-1][1]
+            opposite_direction = moves[last_direction].pole
+
+            preferred_options = [opt for opt in options if opt != opposite_direction]
+
+            if preferred_options:
+                return random.choice(preferred_options)
+            else:
+                return random.choice(options)
+
         else:
-            return random.choice(options)
+            return input_user_move(options)
 
     def move(
         self,
@@ -78,25 +130,33 @@ class Player:
 
 
 class Room:
-    def __init__(self, coords: tuple[int, int]):
-        self.id, self.name, self.description = self.new_details()
+    def __init__(self, coords: tuple[int, int], description=""):
+        self.id, self.name = self.new_details()
         self.coords = coords
         self.paths = {}  # {"N":room_id, "S":room_id}
         self.players_inside = set()  # {player_id}
-        print(f"Room created: {self.name} at {self.coords}")
+        self.description = description
+        print(f"Room created: {self.name} at {self.coords}.")
 
     @staticmethod
     def new_details():
-        prefix = "001"
-        color = fake.color_name()
-        location = fake.street_name()
 
-        description = "Default description"
-        name = f"{prefix} {color} {location}"
-        id_slug = (
-            f"{prefix.lower()}-{color.lower()}-{location.replace(" ", "-").lower()}"
+        fantasy_name_component = (
+            fictional_names.name_generator.generate_name(
+                style="dwarven", library=False
+            ).split(" ")[0]
+            + "'s"
         )
-        return id_slug, name, description
+
+        location = Town.generate()
+
+        name = f"{fantasy_name_component} {location}"
+        id_slug = f"{fantasy_name_component.replace("'", "").lower()}-{location.replace(" ", "-").lower()}"
+        return id_slug, name
+
+    def update_description(self, new_description: str):
+        self.description = new_description
+        print(f"Room {self.name} updated: {self.description}.")
 
 
 @dataclass
@@ -107,9 +167,50 @@ class Move:
 
 
 @dataclass
+class Action:
+    # observe
+    # talk
+    # interact
+    name: str
+    description: str
+    affects_room: bool  # modifies the state of the room
+    affects_players: bool  # modifies the state of other players, hence requires checking who is in the room
+
+
+@dataclass
 class Connection:
     direction: str
     # Other attributes can be added here as needed
+
+
+@dataclass
+class GameConfigs:
+    _moves = {
+        "N": Move("N", (0, 1), "S"),
+        "S": Move("S", (0, -1), "N"),
+        "E": Move("E", (1, 0), "W"),
+        "W": Move("W", (-1, 0), "E"),
+    }
+    _actions = {
+        "1": Action(
+            "OBSERVE",
+            description="Take in the room around you, and the players in it.",
+            affects_room=False,
+            affects_players=False,
+        ),
+        "2": Action(
+            "TALK",
+            description="Make a comment about something that everyone in the room can hear.",
+            affects_room=False,
+            affects_players=True,
+        ),
+        "3": Action(
+            "INTERACT",
+            description="Modify something about the room. Other people can see you do this.",
+            affects_room=True,
+            affects_players=True,
+        ),
+    }
 
 
 class Game:
@@ -125,12 +226,7 @@ class Game:
         # self._connections = defaultdict(
         #     dict
         # )  # {from_room_id: {to_room_id: Connection}}
-        self._moves = {
-            "N": Move("N", (0, 1), "S"),
-            "S": Move("S", (0, -1), "N"),
-            "E": Move("E", (1, 0), "W"),
-            "W": Move("W", (-1, 0), "E"),
-        }
+
         self._player_locations = {}  # {player_id: room_id}
         self._players = defaultdict(Player)  # {player_id: Player}
         self._player_names = set()
@@ -140,6 +236,9 @@ class Game:
         self.fig, self.ax = plt.subplots()
         self._player_artists = {}  # {player_id: (dot, text)}
         self._drawn_room_ids = set()
+        self.dm_generator_module: LLMModule = create_llm_module(
+            "You are the Dungeon Master overseeing a text-based exploration game. There are multiple players exploring a world made up of interconnected rooms. Your task is to generate descriptions for newly created rooms based on their connections and paths. Do not mention anything about the players themselves."
+        )
 
         print("Game initialized.")
 
@@ -152,13 +251,13 @@ class Game:
         Time Complexity: O(1)
         Dictionary lookup and tuple arithmetic are constant time operations.
         """
-        print(f"Translating {current_coords} in direction {move_direction}...")
-        translation = self._moves[move_direction].translate
+        # print(f"Translating {current_coords} in direction {move_direction}...")
+        translation = GameConfigs._moves[move_direction].translate
         new_coords = (
             current_coords[0] + translation[0],
             current_coords[1] + translation[1],
         )
-        print(f"New coordinates: {new_coords}")
+        # print(f"New coordinates: {new_coords}")
         return new_coords
 
     def _room_from_id(self, room_id: str) -> Room:
@@ -177,7 +276,7 @@ class Game:
         # returns {"N": Room, "S": Room...}
 
         adjacent_coords = {
-            d: self._translate(room.coords, d) for d in self._moves.keys()
+            d: self._translate(room.coords, d) for d in GameConfigs._moves.keys()
         }
         rooms = {}
         for d, c in adjacent_coords.items():
@@ -202,7 +301,11 @@ class Game:
         print(
             f"Creating room at {coords} from room {from_room.id if from_room else 'None'}"
         )
-        room = Room(coords)
+
+        room = Room(
+            coords,
+        )
+
         paths = {}
         # This assumes that the room being created CAN open a path from the previous room already
         # TODO: This should be checked at the OPTIONS stage before the player even makes a move.
@@ -223,7 +326,7 @@ class Game:
             if d in paths:
                 continue
             if aroom:
-                pole = self._moves[d].pole
+                pole = GameConfigs._moves[d].pole
                 if pole in aroom.paths and aroom.paths[pole] is None:
                     paths[d] = aroom.id
 
@@ -251,7 +354,23 @@ class Game:
                 paths.update(new_paths)
         print(f"New paths for room {room.id}: {paths}")
 
-        # Create the room
+        # Update the room info
+
+        path_descriptions = {
+            d: desc if desc is not None else "unknown" for d, desc in paths.items()
+        }
+        description = (
+            self.dm_generator_module.get_response(
+                f"""Provide a 100-word description for the room that has just been created and the paths leading out of it.:
+                room_name: {room.name}
+                room_paths: {path_descriptions}
+                
+                If the path has a room_id, it means there is already a room there.
+                If the path has `unknown`, it means the path is open to be explored.
+                """
+            ),
+        )
+        room.update_description(description)
         room.paths = paths
 
         # Update the items.
@@ -262,7 +381,24 @@ class Game:
         for d, room_id in room.paths.items():
             if room_id:
                 aroom = self._room_from_id(room_id)
-                aroom.paths[self._moves[d].pole] = room.id
+                aroom.paths[GameConfigs._moves[d].pole] = room.id
+
+                new_description = self.dm_generator_module.get_response(
+                    f"""The room {aroom.name} has just been connected to a new room {room.name} via the {GameConfigs._moves[d].pole} path.
+                    Only update the room's path description to reflect this new connection. Current description: {aroom.description}.
+                    Provide the new description.
+                    """
+                )
+
+                print(
+                    f"""
+                Adjacent room {aroom.name} updated:
+                FROM = {aroom.description}.
+                
+                TO = {new_description}"""
+                )
+
+                aroom.update_description(new_description)
 
         return room
 
@@ -295,10 +431,12 @@ class Game:
         )  # Drop into a random room.
         print(f"Player {player_name} starting in room {starting_room.name}")
         player = Player(player_name, starting_room.id, is_npc)
+        print(f"Created player {player_name}, description: {player.description}")
         self._players[player.id] = player
         self._player_names.add(player_name)
         self._player_locations[player.id] = starting_room.id
         starting_room.players_inside.add(player.id)
+        print(f"Player {player_name} created with ID {player.id}.")
 
     ### Turn management
 
@@ -329,7 +467,7 @@ class Game:
             next_room = self._create_room(
                 next_coords,
                 current_room,
-                from_direction=self._moves[player_input].pole,  # the opposite
+                from_direction=GameConfigs._moves[player_input].pole,  # the opposite
             )
         else:
             next_room = self._room_from_id(next_room_id)
@@ -350,7 +488,76 @@ class Game:
         )
         return True
 
-    def get_player_options(self, player_id: str):
+    def get_player_actions(self, player_id: str):
+        options = list(GameConfigs._actions.keys())
+        player = self._players[player_id]
+        current_room = self._room_from_id(player.room_id)
+        if not current_room.players_inside - {player_id}:
+            # No other players in the room, cannot TALK
+            options.remove("2")
+
+        return options
+
+    def process_player_action(
+        self,
+        player_id: str,
+        action_key: str,
+        action_prompt: None,  # A description of what the user wants to do.
+    ) -> bool:
+        """
+        Time Complexity: O(1)
+        All operations inside are dictionary lookups or set operations.
+        """
+        print(f"Processing action for player {player_id}: {action_key}")
+        player = self._players[player_id]
+        current_room = self._room_from_id(player.room_id)
+        action = GameConfigs._actions[action_key]
+
+        if action.name == "OBSERVE":
+            print(f"Player {player.name} observes the room: {current_room.description}")
+            print(
+                f"Players in the room: {[self._players[pid].name for pid in current_room.players_inside if pid != player_id]}"
+            )
+            # Update player's memory about the people in the room
+            for pid in current_room.players_inside:
+                if pid != player_id:
+                    # if the player has not been met before:
+                    if self._players[pid].name not in player.memory.known_players:
+                        other_player = self._players[pid]
+                        player.memory.known_players[other_player.name] = PlayerEntry(
+                            name=other_player.name,
+                            description=other_player.description,
+                            last_seen_room_id=current_room.id,
+                        )
+        elif action.name == "TALK":
+            print(
+                f"Player {player.name} says: '{action_prompt}' to players in room {current_room.name}"
+            )
+
+        elif action.name == "INTERACT":
+            print(
+                f"Player {player.name} interacts with the room {current_room.name}: {action_prompt}"
+            )
+
+            # Placeholder for future logic to modify room state
+        # if action.affects_players:
+        #     other_players = current_room.players_inside - {player_id}
+        #     print(
+        #         f"Player {player.name} is performing action {action.description} affecting players: {other_players}"
+        #     )
+        #     # Placeholder for future logic to affect other players
+
+        # if action.affects_room:
+        #     print(
+        #         f"Player {player.name} is performing action {action.description} affecting room {current_room.name}"
+        #     )
+        #     # Placeholder for future logic to affect the room
+
+        # Update history
+        player.history.append((current_room.id, action.description))
+        return True
+
+    def get_player_moves(self, player_id: str):
         """
         Time Complexity: O(1)
         Consists of dictionary lookups to get player and room, then accessing
@@ -401,7 +608,7 @@ class Game:
             )
             # Draw paths as block lines
             for direction in room.paths.keys():
-                dx, dy = self._moves[direction].translate
+                dx, dy = GameConfigs._moves[direction].translate
                 start_x, start_y = x + dx * 0.2, y + dy * 0.2
                 end_x, end_y = x + dx * 0.4, y + dy * 0.4
                 self.ax.plot(
@@ -436,7 +643,7 @@ class Game:
                 self._player_artists[player_id] = (dot, text)
 
         plt.draw()
-        plt.pause(0.001)
+        plt.pause(PAUSE)
 
     def run(self):
         """
@@ -447,25 +654,29 @@ class Game:
         updates while remaining efficient.
         """
         # # Initial draw of the world
-        # self.draw_map()
-        # self.update_player_positions()
+        self.draw_map()
+        self.update_player_positions()
 
         while True:
             for player_id, player in self._players.items():
-                options = self.get_player_options(player_id)
-                if player.is_npc:
-                    player_input = player.auto_action(options, self._moves)
-                else:
-                    # Player can do stuff
-                    player_input = input_user_move(options)
-                success = False
-                while not success:
-                    success = self.process_player_move(player.id, player_input)
+
+                player_fn = player.move_or_act()
+                if player_fn == "ACT":
+                    print(f"\nPlayer <{player.name}> chose to ACT.")
+                    continue
+                    options = self.get_player_actions(player_id)
+                    player_action = player.decide_action(options, GameConfigs._actions)
+                    self.process_player_action(player.id, player_action)
+                elif player_fn == "MOVE":
+                    print(f"\nPlayer <{player.name}> chose to MOVE.")
+                    options = self.get_player_moves(player_id)
+                    player_move = player.decide_move(options, GameConfigs._moves)
+                    self.process_player_move(player.id, player_move)
 
             # After each move, draw newly created rooms and update player positions
-            print("\n\n\n\n\n", len(self._rooms), end="\r")
-            # self.draw_map()
-            # self.update_player_positions()
+            # print("\n\n\n\n\n", len(self._rooms), end="\r")
+            self.draw_map()
+            self.update_player_positions()
 
 
 ###
@@ -503,12 +714,12 @@ def main():
     game.create_world()
 
     # # Only 1 player
-    # player_name = "OLIVER"
-    # game.create_player(player_name, is_npc=False)
+    player_name = "OLIVER"
+    game.create_player(player_name, is_npc=False)
 
     # All NPCs
-    for _ in tqdm(range(10_000), desc="Generating NPCs"):
-        npc_name = fake.uuid4()
+    for _ in tqdm(range(N_NPCS), desc="Generating NPCs"):
+        npc_name = fake.name_nonbinary()
         game.create_player(npc_name, is_npc=True)
 
     # Run
