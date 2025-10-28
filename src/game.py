@@ -1,216 +1,11 @@
-"""
-Time Complexity Analysis:
-
-The game gets progressively slower each round because of the `update_grid` function.
-This function is called after every player's move inside the `run` loop.
-
-The time complexity of `update_grid` is O(N_rooms + N_players), where N_rooms is the
-total number of rooms in the game world. As players explore and new rooms are
-created, N_rooms increases.
-
-Since `update_grid` redraws the entire map from scratch, its execution time grows
-linearly with the number of rooms. This linear growth, repeated every turn,
-causes the noticeable slowdown as the game progresses.
-
-To optimize, `update_grid` could be called once per round (after all players have
-moved) instead of after each individual move. For further optimization, one could
-implement a dirty-flag system to only redraw the parts of the map that have changed.
-"""
-
-# Data model for Nodes, Relationships, Graphs
 import random
 from collections import defaultdict
-from dataclasses import dataclass, field
-from enum import Enum, auto
-from uuid import uuid4
 
-import fictional_names
-import fictional_names.name_generator
 import matplotlib.pyplot as plt
-from faker import Faker
-from FantasyNameGenerator.Stores import Town
-from tqdm import tqdm
 
-fake = Faker()
-
-PAUSE = 0.5
-STARTING_ROOM_COORDS = (0, 0)
-MAX_ROOM_PATHS = 4  # can only be 2,3,4
-N_NPCS = 0
-# LLM IMPORTS
+from config import MAX_ROOM_PATHS, PAUSE, STARTING_ROOM_COORDS, GameConfigs
 from llm import LLMModule, create_llm_module
-
-
-@dataclass
-class PlayerEntry:
-    name: str
-    description: str
-    last_seen_room_id: str
-    interaction_history: list = field(default_factory=list)
-
-
-@dataclass
-class RoomEntry:
-    id: str
-    name: str
-    description: str
-
-
-class Memory:  # The agent's mental model of the game world from their perspective
-    def __init__(self):
-        self.known_players = {}  # {player_name: PlayerEntry}
-        self.known_rooms = {}  # {room_id: RoomEntry}
-        self.preferences = {}
-
-
-class Player:
-
-    DEFAULT_LLM_SYSTEM_PROMPT = "You are an adventurer in a text-based exploration game. Make decisions based on your surroundings and history."
-
-    def __init__(
-        self,
-        name: str,
-        room_id: str,
-        is_npc=False,
-    ):
-        self.id = str(uuid4())
-        self.name = name
-        self.is_npc = is_npc
-        self.room_id = room_id
-        self.history = (
-            []
-        )  # [(room_id, action_taken)] # actions can be `move` or `interact_with`
-
-        self.agent_engine = None  # Placeholder for future AI integration
-        self.memory = Memory()
-        self.llm_module: LLMModule = create_llm_module(self.DEFAULT_LLM_SYSTEM_PROMPT)
-        self.description: str = self.llm_module.get_response(
-            f"Provide a 20-word brief description of your character named {self.name}."
-        )
-
-    def move_or_act(self) -> str:
-        return random.choice(
-            [
-                "MOVE",
-                "ACT",
-            ]
-        )
-
-    def decide_action(self, options: list[str], actions: dict) -> str:
-        # Placeholder for future action decision logic
-        return "OBSERVE"
-
-    def decide_move(self, options: list[str], moves: dict) -> str:
-
-        if self.is_npc:
-            if not self.history:
-                return random.choice(options)
-
-            last_direction = self.history[-1][1]
-            opposite_direction = moves[last_direction].pole
-
-            preferred_options = [opt for opt in options if opt != opposite_direction]
-
-            if preferred_options:
-                return random.choice(preferred_options)
-            else:
-                return random.choice(options)
-
-        else:
-            return input_user_move(options)
-
-    def move(
-        self,
-        from_room_id: str,
-        action_taken: str,
-        to_room_id: str,
-    ):
-        self.history.append((from_room_id, action_taken))
-        self.room_id = to_room_id
-
-
-class Room:
-    def __init__(self, coords: tuple[int, int], description=""):
-        self.id, self.name = self.new_details()
-        self.coords = coords
-        self.paths = {}  # {"N":room_id, "S":room_id}
-        self.players_inside = set()  # {player_id}
-        self.description = description
-        print(f"Room created: {self.name} at {self.coords}.")
-
-    @staticmethod
-    def new_details():
-
-        fantasy_name_component = (
-            fictional_names.name_generator.generate_name(
-                style="dwarven", library=False
-            ).split(" ")[0]
-            + "'s"
-        )
-
-        location = Town.generate()
-
-        name = f"{fantasy_name_component} {location}"
-        id_slug = f"{fantasy_name_component.replace("'", "").lower()}-{location.replace(" ", "-").lower()}"
-        return id_slug, name
-
-    def update_description(self, new_description: str):
-        self.description = new_description
-        print(f"Room {self.name} updated: {self.description}.")
-
-
-@dataclass
-class Move:
-    direction: str
-    translate: tuple[int, int]
-    pole: str
-
-
-@dataclass
-class Action:
-    # observe
-    # talk
-    # interact
-    name: str
-    description: str
-    affects_room: bool  # modifies the state of the room
-    affects_players: bool  # modifies the state of other players, hence requires checking who is in the room
-
-
-@dataclass
-class Connection:
-    direction: str
-    # Other attributes can be added here as needed
-
-
-@dataclass
-class GameConfigs:
-    _moves = {
-        "N": Move("N", (0, 1), "S"),
-        "S": Move("S", (0, -1), "N"),
-        "E": Move("E", (1, 0), "W"),
-        "W": Move("W", (-1, 0), "E"),
-    }
-    _actions = {
-        "1": Action(
-            "OBSERVE",
-            description="Take in the room around you, and the players in it.",
-            affects_room=False,
-            affects_players=False,
-        ),
-        "2": Action(
-            "TALK",
-            description="Make a comment about something that everyone in the room can hear.",
-            affects_room=False,
-            affects_players=True,
-        ),
-        "3": Action(
-            "INTERACT",
-            description="Modify something about the room. Other people can see you do this.",
-            affects_room=True,
-            affects_players=True,
-        ),
-    }
+from models import Player, PlayerEntry, Room
 
 
 class Game:
@@ -391,11 +186,13 @@ class Game:
                 )
 
                 print(
+                    f"\033[92m"
                     f"""
                 Adjacent room {aroom.name} updated:
                 FROM = {aroom.description}.
                 
                 TO = {new_description}"""
+                    f"\033[0m\n"
                 )
 
                 aroom.update_description(new_description)
@@ -494,7 +291,7 @@ class Game:
         current_room = self._room_from_id(player.room_id)
         if not current_room.players_inside - {player_id}:
             # No other players in the room, cannot TALK
-            options.remove("2")
+            options.remove("TALK")
 
         return options
 
@@ -502,7 +299,7 @@ class Game:
         self,
         player_id: str,
         action_key: str,
-        action_prompt: None,  # A description of what the user wants to do.
+        action_prompt: str = None,  # A description of what the user wants to do.
     ) -> bool:
         """
         Time Complexity: O(1)
@@ -530,30 +327,17 @@ class Game:
                             last_seen_room_id=current_room.id,
                         )
         elif action.name == "TALK":
+            talk_prompt = player.input_descriptive_prompt(action)
             print(
-                f"Player {player.name} says: '{action_prompt}' to players in room {current_room.name}"
+                f"Player {player.name} says: '{talk_prompt}' to players in room {current_room.name}"
             )
 
         elif action.name == "INTERACT":
+            interact_prompt = player.input_descriptive_prompt(action)
             print(
-                f"Player {player.name} interacts with the room {current_room.name}: {action_prompt}"
+                f"Player {player.name} interacts with the room {current_room.name}: {interact_prompt}"
             )
 
-            # Placeholder for future logic to modify room state
-        # if action.affects_players:
-        #     other_players = current_room.players_inside - {player_id}
-        #     print(
-        #         f"Player {player.name} is performing action {action.description} affecting players: {other_players}"
-        #     )
-        #     # Placeholder for future logic to affect other players
-
-        # if action.affects_room:
-        #     print(
-        #         f"Player {player.name} is performing action {action.description} affecting room {current_room.name}"
-        #     )
-        #     # Placeholder for future logic to affect the room
-
-        # Update history
         player.history.append((current_room.id, action.description))
         return True
 
@@ -645,6 +429,23 @@ class Game:
         plt.draw()
         plt.pause(PAUSE)
 
+    def announce_turn_situation(self, player_id: str):
+        player = self._players[player_id]
+        current_room = self._room_from_id(player.room_id)
+
+        print(f"\033[93m\n--- Player {player.name}'s Turn ---\033[0m")
+        print(f"\033[93mYou are in room: {current_room.name} \n \033[0m")
+        print(f"\033[93mRoom description: {current_room.description} \n \033[0m")
+        other_players = [
+            self._players[pid].name
+            for pid in current_room.players_inside
+            if pid != player_id
+        ]
+        if other_players:
+            print(f"\033[93mOther players in the room: {other_players}\033[0m")
+        else:
+            print("\033[93mYou are alone in this room.\033[0m")
+
     def run(self):
         """
         Time Complexity: O(N_players * (1 + N_new_rooms_per_turn)) per round.
@@ -660,10 +461,13 @@ class Game:
         while True:
             for player_id, player in self._players.items():
 
+                # Announce the situation to the player
+                self.announce_turn_situation(player_id)
+
+                # Player now makes certain decisions:
                 player_fn = player.move_or_act()
                 if player_fn == "ACT":
                     print(f"\nPlayer <{player.name}> chose to ACT.")
-                    continue
                     options = self.get_player_actions(player_id)
                     player_action = player.decide_action(options, GameConfigs._actions)
                     self.process_player_action(player.id, player_action)
@@ -673,60 +477,5 @@ class Game:
                     player_move = player.decide_move(options, GameConfigs._moves)
                     self.process_player_move(player.id, player_move)
 
-            # After each move, draw newly created rooms and update player positions
-            # print("\n\n\n\n\n", len(self._rooms), end="\r")
             self.draw_map()
             self.update_player_positions()
-
-
-###
-
-
-# helpers
-def checked_input(prompt: str) -> str:
-    input_str = input(prompt + ": ")
-    while input_str == "":
-        print("No input found, please try again.")
-        input_str = input(prompt)
-
-    if input_str == "/q":
-        print("Goodbye!")
-        exit()
-    else:
-        return input_str
-
-
-def input_user_move(options: list[str]) -> str:
-    print("Available options:")
-    for option in options:
-        print(f"- {option}")
-    i = checked_input("What do you want to do next?").upper()
-
-    while i not in options:
-        print("Invalid move")
-        i = checked_input("What do you want to do next?").upper()
-    return i
-
-
-def main():
-    print("Starting game...")
-    game = Game()
-    game.create_world()
-
-    # # Only 1 player
-    player_name = "OLIVER"
-    game.create_player(player_name, is_npc=False)
-
-    # All NPCs
-    for _ in tqdm(range(N_NPCS), desc="Generating NPCs"):
-        npc_name = fake.name_nonbinary()
-        game.create_player(npc_name, is_npc=True)
-
-    # Run
-    print("Running game...")
-    game.run()
-    print("Game over.")
-
-
-if __name__ == "__main__":
-    main()
