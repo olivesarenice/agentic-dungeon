@@ -1,4 +1,11 @@
 # helpers
+from datetime import datetime
+
+
+def iso_ts() -> str:
+    return datetime.now(datetime.timezone.utc).isoformat()
+
+
 def checked_input(prompt: str) -> str:
     input_str = input(prompt + ": ")
     while input_str == "":

@@ -1,11 +1,10 @@
 import random
 from collections import defaultdict
 
-import matplotlib.pyplot as plt
-
 from config import MAX_ROOM_PATHS, PAUSE, STARTING_ROOM_COORDS, GameConfigs
+from helpers import iso_ts
 from llm import LLMModule, create_llm_module
-from models import Player, PlayerEntry, Room
+from models import GameEvent, Player, PlayerEntry, Room, RoomEntry
 
 
 class Game:
@@ -26,11 +25,6 @@ class Game:
         self._players = defaultdict(Player)  # {player_id: Player}
         self._player_names = set()
 
-        # Matplotlib setup
-        plt.ion()  # Turn on interactive mode
-        self.fig, self.ax = plt.subplots()
-        self._player_artists = {}  # {player_id: (dot, text)}
-        self._drawn_room_ids = set()
         self.dm_generator_module: LLMModule = create_llm_module(
             "You are the Dungeon Master overseeing a text-based exploration game. There are multiple players exploring a world made up of interconnected rooms. Your task is to generate descriptions for newly created rooms based on their connections and paths. Do not mention anything about the players themselves."
         )
@@ -283,6 +277,45 @@ class Game:
             player_input,
             next_room.id,
         )
+
+        # All players in the current room update their memory about this player leaving
+        for witness_id in current_room.players_inside:
+            witness = self._players[witness_id]
+            witness.witness(
+                GameEvent(
+                    timestamp=iso_ts,
+                    room_id=current_room.id,
+                    actor_id=player.id,
+                    actor_name=player.name,
+                    action_type="MOVE_OUT",
+                    content=f"{player.name} has left the room.",
+                    witness_ids=list(current_room.players_inside),
+                ),
+                self._players,
+            )
+
+        # TODO: Need to include the player_names inside the Room object, so that when observing, the player can see who is in the room.
+        player.observe(next_room, self._players)
+        # The player OBSERVEs the room after moving by default, no need for additional step
+
+        # All other witnesses in the new room also update their memory about this player
+        for witness_id in next_room.players_inside:
+            if witness_id == player.id:
+                continue
+            witness = self._players[witness_id]
+            witness.witness(
+                GameEvent(
+                    timestamp=iso_ts,
+                    room_id=next_room.id,
+                    actor_id=player.id,
+                    actor_name=player.name,
+                    action_type="MOVE_IN",
+                    content=f"{player.name} has entered the room.",
+                    witness_ids=list(next_room.players_inside),
+                ),
+                self._players,
+            )
+
         return True
 
     def get_player_actions(self, player_id: str):
@@ -299,34 +332,29 @@ class Game:
         self,
         player_id: str,
         action_key: str,
-        action_prompt: str = None,  # A description of what the user wants to do.
+        action_prompt: str = str,  # A description of what the user wants to do.
     ) -> bool:
         """
-        Time Complexity: O(1)
-        All operations inside are dictionary lookups or set operations.
+        Time Complexity: O(N-players in the room)
+        Iterate through each player and update their memory.
         """
         print(f"Processing action for player {player_id}: {action_key}")
         player = self._players[player_id]
         current_room = self._room_from_id(player.room_id)
         action = GameConfigs._actions[action_key]
 
-        if action.name == "OBSERVE":
-            print(f"Player {player.name} observes the room: {current_room.description}")
-            print(
-                f"Players in the room: {[self._players[pid].name for pid in current_room.players_inside if pid != player_id]}"
-            )
-            # Update player's memory about the people in the room
-            for pid in current_room.players_inside:
-                if pid != player_id:
-                    # if the player has not been met before:
-                    if self._players[pid].name not in player.memory.known_players:
-                        other_player = self._players[pid]
-                        player.memory.known_players[other_player.name] = PlayerEntry(
-                            name=other_player.name,
-                            description=other_player.description,
-                            last_seen_room_id=current_room.id,
-                        )
-        elif action.name == "TALK":
+        # Create the game event
+        event = GameEvent(
+            timestamp=iso_ts,
+            room_id=current_room.id,
+            actor_id=player.id,
+            actor_name=player.name,
+            action_type=action.name,
+            content=action_prompt,
+            witness_ids=list(current_room.players_inside),
+        )
+
+        if action.name == "TALK":
             talk_prompt = player.input_descriptive_prompt(action)
             print(
                 f"Player {player.name} says: '{talk_prompt}' to players in room {current_room.name}"
@@ -338,7 +366,30 @@ class Game:
                 f"Player {player.name} interacts with the room {current_room.name}: {interact_prompt}"
             )
 
-        player.history.append((current_room.id, action.description))
+            # Update the room description to reflect the interaction (LLM)
+            dm_prompt = f"""
+            The player has just performed the following interaction in the room: 
+            
+            {interact_prompt}.
+            
+            ---
+            Update the description of the room to reflect this interaction. Do not mention the player or the event specifically.
+            
+            Current room description: {current_room.description}
+            """
+            dm_description = self.dm_generator_module.get_response(dm_prompt)
+            print(
+                f"\033[92mRoom {current_room.name} updated description:\nFROM = {current_room.description}\nTO = {dm_description}\033[0m\n"
+            )
+            current_room.update_description(dm_description)
+
+        # Finally, update all players' memories who witnessed this event including the new changes to the room.
+        for witness_id in event.witness_ids:
+            witness = self._players[witness_id]
+            witness.witness(event, self._players)
+
+        # TODO: need to modify the room to also contain the player_names so that when observing, the player can see who is in the room.
+        player.observe(current_room, self._players)  # Re-observe the room after action
         return True
 
     def get_player_moves(self, player_id: str):
@@ -351,87 +402,80 @@ class Game:
         current_room = self._room_from_id(player.room_id)
         return list(current_room.paths.keys())
 
-    def draw_map(self):
-        """
-        Time Complexity: O(N_new_rooms)
-        Draws only the rooms and paths that have not been drawn yet. This is
-        much more efficient than redrawing the entire map every time.
-        """
-        new_rooms = [
-            room for room in self._rooms.values() if room.id not in self._drawn_room_ids
-        ]
-
-        if not new_rooms:
+    def draw_cli_map(self, current_player_id: str = None):
+        if not self._map:
+            print("The map is empty.")
             return
 
-        # Update plot limits if necessary
-        all_coords = list(self._map.keys())
-        min_x = min(c[0] for c in all_coords) - 2
-        max_x = max(c[0] for c in all_coords) + 2
-        min_y = min(c[1] for c in all_coords) - 2
-        max_y = max(c[1] for c in all_coords) + 2
-        self.ax.set_xlim(min_x, max_x)
-        self.ax.set_ylim(min_y, max_y)
-        self.ax.set_aspect("equal", adjustable="box")
+        coords = list(self._map.keys())
+        min_x, max_x = min(c[0] for c in coords), max(c[0] for c in coords)
+        min_y, max_y = min(c[1] for c in coords), max(c[1] for c in coords)
 
-        for room in new_rooms:
-            x, y = room.coords
-            # Draw room as a square
-            self.ax.add_patch(
-                plt.Rectangle(
-                    (x - 0.2, y - 0.2),
-                    0.4,
-                    0.4,
-                    fill=True,
-                    color="lightblue",
-                    ec="black",
-                )
-            )
-            self.ax.text(
-                x, y, room.name.split(" ")[1], ha="center", va="center", fontsize=8
-            )
-            # Draw paths as block lines
-            for direction in room.paths.keys():
-                dx, dy = GameConfigs._moves[direction].translate
-                start_x, start_y = x + dx * 0.2, y + dy * 0.2
-                end_x, end_y = x + dx * 0.4, y + dy * 0.4
-                self.ax.plot(
-                    [start_x, end_x],
-                    [start_y, end_y],
-                    color="lightblue",
-                    linewidth=20,
-                )
-            self._drawn_room_ids.add(room.id)
+        grid = defaultdict(lambda: " ")
+        cell_h, cell_w = 5, 9  # Larger cells
 
-    def update_player_positions(self):
-        """
-        Time Complexity: O(N_players)
-        Updates the positions of player markers on the map. This is a very
-        fast operation, as it only moves existing plot artists.
-        """
-        for player_id, player in self._players.items():
-            room = self._room_from_id(player.room_id)
-            x, y = room.coords
+        for (x, y), room_id in self._map.items():
+            room = self._room_from_id(room_id)
+            cx = (x - min_x) * (cell_w - 1)
+            cy = (max_y - y) * (cell_h - 1)
 
-            if player_id in self._player_artists:
-                # Update existing player artist
-                dot, text = self._player_artists[player_id]
-                dot.set_data([x], [y])
-                text.set_position((x + 0.1, y + 0.1))
-            else:
-                # Create new player artist
-                (dot,) = self.ax.plot(x, y, "ro")  # Red dot
-                text = self.ax.text(
-                    x + 0.1, y + 0.1, player.name, color="red", fontsize=10
-                )
-                self._player_artists[player_id] = (dot, text)
+            # Draw room box
+            for i in range(cell_w):
+                grid[cx + i, cy] = "-"
+                grid[cx + i, cy + cell_h - 1] = "-"
+            for i in range(cell_h):
+                grid[cx, cy + i] = "|"
+                grid[cx + cell_w - 1, cy + i] = "|"
+            grid[cx, cy] = "+"
+            grid[cx + cell_w - 1, cy] = "+"
+            grid[cx, cy + cell_h - 1] = "+"
+            grid[cx + cell_w - 1, cy + cell_h - 1] = "+"
 
-        plt.draw()
-        plt.pause(PAUSE)
+            # Draw players
+            player_chars = []
+            for pid in sorted(list(room.players_inside)):
+                if pid == current_player_id:
+                    player_chars.append("X")
+                else:
+                    player_chars.append("O")
+
+            player_str = "".join(player_chars)
+            # Place player string in the middle of the room
+            start_pos = (cell_w - len(player_str)) // 2
+            for i, char in enumerate(player_str):
+                grid[cx + start_pos + i, cy + (cell_h // 2)] = char
+
+            # Draw connections
+            if "N" in room.paths:
+                grid[cx + cell_w // 2, cy] = " "
+                grid[cx + cell_w // 2, cy - 1] = "|"
+            if "S" in room.paths:
+                grid[cx + cell_w // 2, cy + cell_h - 1] = " "
+                grid[cx + cell_w // 2, cy + cell_h] = "|"
+            if "W" in room.paths:
+                grid[cx, cy + cell_h // 2] = " "
+                grid[cx - 1, cy + cell_h // 2] = "-"
+                grid[cx - 2, cy + cell_h // 2] = "-"
+            if "E" in room.paths:
+                grid[cx + cell_w - 1, cy + cell_h // 2] = " "
+                grid[cx + cell_w, cy + cell_h // 2] = "-"
+                grid[cx + cell_w + 1, cy + cell_h // 2] = "-"
+
+        grid_w = (max_x - min_x + 1) * (cell_w - 1) + 1
+        grid_h = (max_y - min_y + 1) * (cell_h - 1) + 1
+
+        header = " MAP (X: You, O: Others) "
+        print("\n" + f"{header:=^{grid_w}}")
+        for r in range(grid_h):
+            line = "".join([grid[c, r] for c in range(grid_w)])
+            print(line)
+        print("=" * grid_w + "\n")
 
     def announce_turn_situation(self, player_id: str):
         player = self._players[player_id]
         current_room = self._room_from_id(player.room_id)
+
+        self.draw_cli_map(player_id)
 
         print(f"\033[93m\n--- Player {player.name}'s Turn ---\033[0m")
         print(f"\033[93mYou are in room: {current_room.name} \n \033[0m")
@@ -455,8 +499,7 @@ class Game:
         updates while remaining efficient.
         """
         # # Initial draw of the world
-        self.draw_map()
-        self.update_player_positions()
+        # self.draw_cli_map() # No specific player context here
 
         while True:
             for player_id, player in self._players.items():
@@ -477,5 +520,4 @@ class Game:
                     player_move = player.decide_move(options, GameConfigs._moves)
                     self.process_player_move(player.id, player_move)
 
-            self.draw_map()
-            self.update_player_positions()
+            # self.draw_cli_map() # Now drawn at the start of each player's turn
