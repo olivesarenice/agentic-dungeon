@@ -152,6 +152,59 @@ class LLMModule:
         else:
             raise ValueError(f"Unsupported LLM provider: {self.provider}")
 
+    def get_validated_response(
+        self, prompt: str, max_words: int = None, min_words: int = 1
+    ) -> str:
+        """
+        Get a response with validation.
+
+        Args:
+            prompt: The prompt to send
+            max_words: Maximum number of words (None for no limit)
+            min_words: Minimum number of words
+
+        Returns:
+            Validated response text
+
+        Raises:
+            ValueError: If response doesn't meet validation criteria
+        """
+        response = self.get_response(prompt)
+
+        if not response or len(response.strip()) == 0:
+            raise ValueError("Empty LLM response")
+
+        words = response.split()
+
+        if min_words and len(words) < min_words:
+            raise ValueError(
+                f"Response too short: {len(words)} words (min: {min_words})"
+            )
+
+        if max_words and len(words) > max_words:
+            response = " ".join(words[:max_words])
+
+        return response.strip()
+
+    def get_response_with_fallback(
+        self, prompt: str, fallback: str = "Unable to generate response"
+    ) -> str:
+        """
+        Get a response with a fallback value on error.
+
+        Args:
+            prompt: The prompt to send
+            fallback: Fallback text if LLM fails
+
+        Returns:
+            LLM response or fallback text
+        """
+        try:
+            return self.get_validated_response(prompt)
+        except Exception as e:
+            print(f"LLM error: {e}, using fallback")
+            return fallback
+
 
 def create_llm_module(system_prompt: str, provider: str = LLM_PROVIDER) -> LLMModule:
     """

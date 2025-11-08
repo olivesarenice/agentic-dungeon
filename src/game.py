@@ -1,29 +1,37 @@
 import random
-from collections import defaultdict
+from typing import Optional
 
 from config import MAX_ROOM_PATHS, PAUSE, STARTING_ROOM_COORDS, GameConfigs
+from constants import GameConstants
+from controllers import AIController, HumanController
+from enums import ActionType, DecisionType, Direction, PlayerType
 from helpers import iso_ts
 from llm import LLMModule, create_llm_module
 from models import GameEvent, Player, PlayerEntry, Room, RoomEntry
 
 
 class Game:
+    """
+    Main game orchestrator managing the dungeon exploration game.
+    Handles world generation, player management, and turn execution.
+    """
 
     def __init__(self):
         """
-        Time Complexity: O(1)
-        Initializes dictionaries and other data structures in constant time.
+        Initialize the game with empty data structures.
+        Uses regular dicts with explicit validation instead of defaultdict.
         """
         print("Initializing game...")
-        self._rooms = defaultdict(Room)  # {room_id: Room}
-        self._map = defaultdict(str)  # {(0,1):room_id}
-        # self._connections = defaultdict(
-        #     dict
-        # )  # {from_room_id: {to_room_id: Connection}}
 
-        self._player_locations = {}  # {player_id: room_id}
-        self._players = defaultdict(Player)  # {player_id: Player}
-        self._player_names = set()
+        # Use regular dicts to prevent accidental empty object creation
+        self._rooms: dict[str, Room] = {}
+        self._map: dict[tuple[int, int], str] = {}
+        self._player_locations: dict[str, str] = {}
+        self._players: dict[str, Player] = {}
+        self._player_names: set[str] = set()
+
+        # Keep track of room IDs for efficient random selection
+        self._room_ids: list[str] = []
 
         self.dm_generator_module: LLMModule = create_llm_module(
             "You are the Dungeon Master overseeing a text-based exploration game. There are multiple players exploring a world made up of interconnected rooms. Your task is to generate descriptions for newly created rooms based on their connections and paths. Do not mention anything about the players themselves."
@@ -49,12 +57,25 @@ class Game:
         # print(f"New coordinates: {new_coords}")
         return new_coords
 
-    def _room_from_id(self, room_id: str) -> Room:
+    def _room_from_id(self, room_id: str) -> Optional[Room]:
         """
+        Safely get a room by ID with validation.
+
+        Args:
+            room_id: The room ID to look up
+
+        Returns:
+            Room if found, None otherwise
+
         Time Complexity: O(1)
-        Dictionary lookup is a constant time operation.
         """
-        return self._rooms.get(room_id)
+        room = self._rooms.get(room_id)
+        if room is None:
+            available_rooms = list(self._rooms.keys())[:5]
+            print(
+                f"Warning: Room {room_id} not found. Available rooms: {available_rooms}..."
+            )
+        return room
 
     def _get_adjacent_rooms(self, room: Room) -> dict[str, Room]:
         """
@@ -162,8 +183,9 @@ class Game:
         room.update_description(description)
         room.paths = paths
 
-        # Update the items.
+        # Update the items and maintain room ID list
         self._rooms[room.id] = room
+        self._room_ids.append(room.id)  # Maintain list for O(1) random access
         self._map[room.coords] = room.id
 
         # And also update the paths of all rooms that we are now connected to:
@@ -205,29 +227,67 @@ class Game:
     def create_player(
         self,
         player_name: str,
-        is_npc: bool,
-    ):
+        player_type: PlayerType,
+    ) -> Optional[Player]:
         """
-        Time Complexity: O(N_rooms)
-        `random.choice(list(self._rooms.keys()))` is the bottleneck. Converting
-        dict_keys to a list takes O(N_rooms) time.
+        Create a new player with appropriate controller.
+
+        Args:
+            player_name: Name of the player
+            player_type: Type of player (HUMAN or NPC)
+
+        Returns:
+            Created Player instance, or None if creation failed
+
+        Time Complexity: O(1) now that we use _room_ids list
         """
+        if not player_name:
+            raise ValueError("Player name cannot be empty")
+
         print(f"Creating player: {player_name}")
+
         if player_name in self._player_names:
             print(f"Player with name {player_name} already exists.")
-            return
+            return None
 
-        starting_room = self._room_from_id(
-            random.choice(list(self._rooms.keys()))
-        )  # Drop into a random room.
+        if not self._room_ids:
+            raise ValueError("Cannot create player: No rooms exist in the world")
+
+        # O(1) random selection using pre-maintained list
+        starting_room_id = random.choice(self._room_ids)
+        starting_room = self._room_from_id(starting_room_id)
+
+        if not starting_room:
+            raise ValueError(f"Starting room {starting_room_id} not found")
+
         print(f"Player {player_name} starting in room {starting_room.name}")
-        player = Player(player_name, starting_room.id, is_npc)
+
+        # Create appropriate controller based on player type
+        if player_type == PlayerType.HUMAN:
+            controller = HumanController()
+        elif player_type == PlayerType.NPC:
+            # Create LLM module for NPC
+            npc_llm = create_llm_module(Player.DEFAULT_LLM_SYSTEM_PROMPT)
+            controller = AIController(player_name, npc_llm)
+        else:
+            raise ValueError(f"Unknown player type: {player_type}")
+
+        player = Player(
+            name=player_name,
+            room_id=starting_room.id,
+            controller=controller,
+            player_type=player_type,
+        )
+
         print(f"Created player {player_name}, description: {player.description}")
+
         self._players[player.id] = player
         self._player_names.add(player_name)
         self._player_locations[player.id] = starting_room.id
         starting_room.players_inside.add(player.id)
+
         print(f"Player {player_name} created with ID {player.id}.")
+        return player
 
     ### Turn management
 
@@ -332,9 +392,10 @@ class Game:
         self,
         player_id: str,
         action_key: str,
-        action_prompt: str = str,  # A description of what the user wants to do.
     ) -> bool:
         """
+        Process a player action using the controller pattern.
+
         Time Complexity: O(N-players in the room)
         Iterate through each player and update their memory.
         """
@@ -343,9 +404,12 @@ class Game:
         current_room = self._room_from_id(player.room_id)
         action = GameConfigs._actions[action_key]
 
+        # Use controller to get action details
+        action_prompt = player.controller.provide_action_details(action)
+
         # Create the game event
         event = GameEvent(
-            timestamp=iso_ts,
+            timestamp=iso_ts(),
             room_id=current_room.id,
             actor_id=player.id,
             actor_name=player.name,
@@ -354,23 +418,21 @@ class Game:
             witness_ids=list(current_room.players_inside),
         )
 
-        if action.name == "TALK":
-            talk_prompt = player.input_descriptive_prompt(action)
+        if action.name == ActionType.TALK.value:
             print(
-                f"Player {player.name} says: '{talk_prompt}' to players in room {current_room.name}"
+                f"Player {player.name} says: '{action_prompt}' to players in room {current_room.name}"
             )
 
-        elif action.name == "INTERACT":
-            interact_prompt = player.input_descriptive_prompt(action)
+        elif action.name == ActionType.INTERACT.value:
             print(
-                f"Player {player.name} interacts with the room {current_room.name}: {interact_prompt}"
+                f"Player {player.name} interacts with the room {current_room.name}: {action_prompt}"
             )
 
             # Update the room description to reflect the interaction (LLM)
             dm_prompt = f"""
             The player has just performed the following interaction in the room: 
             
-            {interact_prompt}.
+            {action_prompt}.
             
             ---
             Update the description of the room to reflect this interaction. Do not mention the player or the event specifically.
@@ -403,6 +465,7 @@ class Game:
         return list(current_room.paths.keys())
 
     def draw_cli_map(self, current_player_id: str = None):
+        """Draw the CLI map without using defaultdict."""
         if not self._map:
             print("The map is empty.")
             return
@@ -411,8 +474,9 @@ class Game:
         min_x, max_x = min(c[0] for c in coords), max(c[0] for c in coords)
         min_y, max_y = min(c[1] for c in coords), max(c[1] for c in coords)
 
-        grid = defaultdict(lambda: " ")
-        cell_h, cell_w = 5, 9  # Larger cells
+        # Use dict with .get() instead of defaultdict
+        grid: dict[tuple[int, int], str] = {}
+        cell_h, cell_w = GameConstants.CLI_CELL_HEIGHT, GameConstants.CLI_CELL_WIDTH
 
         for (x, y), room_id in self._map.items():
             room = self._room_from_id(room_id)
@@ -467,7 +531,7 @@ class Game:
         header = " MAP (X: You, O: Others) "
         print("\n" + f"{header:=^{grid_w}}")
         for r in range(grid_h):
-            line = "".join([grid[c, r] for c in range(grid_w)])
+            line = "".join([grid.get((c, r), " ") for c in range(grid_w)])
             print(line)
         print("=" * grid_w + "\n")
 
@@ -492,32 +556,33 @@ class Game:
 
     def run(self):
         """
+        Main game loop using the controller pattern.
+
         Time Complexity: O(N_players * (1 + N_new_rooms_per_turn)) per round.
         The main game loop. For each player, it processes a move (O(1)),
         draws any new rooms created during the move (O(N_new_rooms)), and
         updates all player positions (O(N_players)). This provides real-time
         updates while remaining efficient.
         """
-        # # Initial draw of the world
-        # self.draw_cli_map() # No specific player context here
-
         while True:
             for player_id, player in self._players.items():
 
                 # Announce the situation to the player
                 self.announce_turn_situation(player_id)
 
-                # Player now makes certain decisions:
-                player_fn = player.move_or_act()
-                if player_fn == "ACT":
+                # Use controller to decide turn type
+                decision = player.controller.decide_turn_type()
+
+                if decision == DecisionType.ACT:
                     print(f"\nPlayer <{player.name}> chose to ACT.")
                     options = self.get_player_actions(player_id)
-                    player_action = player.decide_action(options, GameConfigs._actions)
+                    player_action = player.controller.decide_action(
+                        options, GameConfigs._actions
+                    )
                     self.process_player_action(player.id, player_action)
-                elif player_fn == "MOVE":
+
+                elif decision == DecisionType.MOVE:
                     print(f"\nPlayer <{player.name}> chose to MOVE.")
                     options = self.get_player_moves(player_id)
-                    player_move = player.decide_move(options, GameConfigs._moves)
+                    player_move = player.controller.decide_move(options)
                     self.process_player_move(player.id, player_move)
-
-            # self.draw_cli_map() # Now drawn at the start of each player's turn
