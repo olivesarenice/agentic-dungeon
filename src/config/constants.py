@@ -9,7 +9,9 @@ class GameConstants:
 
     # Room generation
     MAX_ROOM_PATHS = 3
-    DEFAULT_DESCRIPTION_WORDS = 100
+    DEFAULT_DESCRIPTION_WORDS = (
+        40  # Reduced from 100 for concise D&D-style descriptions
+    )
 
     # CLI rendering
     CLI_CELL_HEIGHT = 5
@@ -18,7 +20,8 @@ class GameConstants:
     # Player limits
     MAX_PLAYERS = 10
     MAX_ACTION_DETAIL_LENGTH = 200
-    N_NPCS = 1
+    N_NPCS = 5
+    N_HUMANS = 0
 
     # NPC behavior
     NPC_MOVE_PROBABILITY = 0.2  # 0.0 = never move, 1.0 = always move (vs TALK/INTERACT)

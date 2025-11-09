@@ -111,18 +111,26 @@ def main():
     if player_count == 0:
         print("\nCreating players...")
 
-        # Create human player
-        player_name = input(
-            "Enter your character name (or press Enter for OLIVER): "
-        ).strip()
-        if not player_name:
-            player_name = "OLIVER"
-        game.create_player(player_name, PlayerType.HUMAN)
-
+        n_humans = getattr(GameConstants, "N_HUMANS", 1)
+        if n_humans == 1:
+            print(
+                f"Note: Configured for {n_humans} human players, but only one can play at a time."
+            )
+            # Create human player
+            player_name = input(
+                "Enter your character name (or press Enter for OLIVER): "
+            ).strip()
+            if not player_name:
+                player_name = "OLIVER"
+            game.create_player(player_name, PlayerType.HUMAN)
+        else:
+            print(
+                f"Note: Configured for {n_humans} human players, but only one can play at a time."
+            )
         # Create NPCs
         n_npcs = getattr(GameConstants, "N_NPCS", 3)
         for _ in tqdm(range(n_npcs), desc="Generating NPCs"):
-            npc_name = fake.name_nonbinary()
+            npc_name = fake.user_name() + "_" + str(fake.random_number(digits=3))
             game.create_player(npc_name, PlayerType.NPC)
     else:
         print(f"World already has {player_count} players.")

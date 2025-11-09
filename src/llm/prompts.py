@@ -50,62 +50,134 @@ Update the description of the room to reflect this interaction. Do not mention t
 Current room description: ${current_description}"""
     )
 
-    # Memory synthesis prompts
+    # Memory synthesis prompts - SPECIFIC STRUCTURED FORMAT
     UPDATE_PLAYER_MEMORY = Template(
-        """Update your mental description of ${player_name} based on your most recent interaction with them.
-
-Current Description: 
-${current_description}
-
----
-Recent Interaction: 
+        """Update your memory of ${player_name} based on this interaction:
 ${interaction_content}
 
-Provide only the updated description, no preamble."""
+Current memory:
+${current_description}
+
+FORMAT: Use EXACTLY this structure (bullet points only):
+- My opinion of the player: [one brief phrase]
+- Physical appearance: [one brief phrase]
+- Personality: [one brief phrase]
+- Any significant traits: [one brief phrase]
+- Last seen in room: [room name or ID]
+
+Good example:
+- My opinion of the player: Trustworthy ally
+- Physical appearance: Tall, wears blue robes
+- Personality: Cautious but helpful
+- Any significant traits: Skilled with magic
+- Last seen in room: Dark Cavern
+
+Bad example (TOO VERBOSE or WRONG FORMAT):
+"This adventurer seems friendly and wears blue robes..."
+
+Your updated memory (use exact format above):"""
     )
 
     UPDATE_ROOM_MEMORY = Template(
-        """Update your mental description of ${room_id} based on your most recent observations.
-
-Current Description:
-${current_description}
-
----
-Recent Observation:
+        """Update your memory of this location based on your observation:
 ${observation}
 
-Provide only the updated description, no preamble."""
+Current memory:
+${current_description}
+
+FORMAT: Use EXACTLY this structure (bullet points only):
+- Physical appearance: [brief description]
+- Other things notable to senses: [sounds, smells, temperature, etc.]
+- Players present in the room with me: [list names, or "None" if alone]
+- Players previously seen here: [list names of others seen before, or "None"]
+
+Good example:
+- Physical appearance: Dark stone chamber, damp walls
+- Other things notable to senses: Water dripping, smells of earth, cold air
+- Players present in the room with me: John, Sarah
+- Players previously seen here: John, Sarah, Alex (no longer here)
+
+Bad example (TOO VERBOSE or WRONG FORMAT):
+"This is a dark chamber with water dripping..."
+
+Your updated memory (use exact format above):"""
     )
 
-    # Action prompts
+    # Action prompts - CONCISE D&D style
     NPC_ACTION_PROMPT = Template(
-        """As an NPC named ${npc_name}, you have decided to <${action_name}>: ${action_description}.
-${player_prompt}
+        """You are ${npc_name} in ${room_name}.
 
-Provide a brief response describing what you do."""
+Room: ${room_description}
+Other players here: ${other_players}
+
+Action: ${player_prompt}
+
+IMPORTANT: Be concise like a D&D player. Use 1-2 short sentences maximum.
+Consider the room and other players when responding.
+
+Good examples:
+- "I check the chest for traps"
+- "I examine the ancient runes on the wall"
+- "Hi everyone! Anyone need help?"
+
+Bad examples (TOO VERBOSE):
+- "Cautiously approaching the mysterious chest..."
+- "With great care, I slowly move towards..."
+
+Your response (1-2 sentences only):"""
     )
 
-    # System prompts
-    PLAYER_SYSTEM_PROMPT = """You are an adventurer in a text-based exploration game. Make decisions based on your surroundings and history."""
+    # System prompts - EMPHASIZE CONCISENESS
+    PLAYER_SYSTEM_PROMPT = """You are an adventurer in a text-based D&D game. 
 
-    DM_SYSTEM_PROMPT = """You are the Dungeon Master overseeing a text-based exploration game. There are multiple players exploring a world made up of interconnected rooms. Your task is to generate descriptions for newly created rooms based on their connections and paths. Do not mention anything about the players themselves."""
+IMPORTANT: Be concise. Respond like a D&D player would write on their character sheet.
+- Use 1-2 short sentences for actions
+- Use bullet points for observations
+- No flowery language or lengthy descriptions
 
-    # World generation prompts (used by WorldGenerator)
-    WORLD_GEN_ROOM_DESCRIPTION = Template(
-        """Provide a ${word_count}-word description for the room that has just been created and the paths leading out of it:
-room_name: ${room_name}
-room_paths: ${room_paths}
-
-If the path has a room_id, it means there is already a room there.
-If the path has `unknown`, it means the path is open to be explored.
+Think: "I check for traps" NOT "Cautiously, I approach the chest..."
 """
+
+    DM_SYSTEM_PROMPT = """You are the Dungeon Master for a text-based D&D game.
+
+IMPORTANT: Be concise and atmospheric:
+- Room descriptions: 30-50 words max
+- Focus on sensory details (see/hear/smell)
+- Notable features only
+- Set mood, don't tell stories
+
+Think D&D session notes, not novel writing.
+"""
+
+    # World generation prompts (used by WorldGenerator) - CONCISE D&D style
+    WORLD_GEN_ROOM_DESCRIPTION = Template(
+        """Describe this ${word_count}-word room for a D&D game:
+Room: ${room_name}
+Exits: ${room_paths}
+
+IMPORTANT: Be concise and atmospheric. Focus on:
+1. What you see/hear/smell (sensory details)
+2. Notable features
+3. Mood/atmosphere
+
+Good example (40 words):
+"A damp stone chamber. Water drips from moss-covered walls. Ancient runes glow faintly blue, casting dancing shadows. The air smells of earth and old magic. Passages lead north and east into darkness."
+
+Bad example (TOO VERBOSE/FLOWERY):
+"As you enter this magnificent chamber, you are immediately struck by..."
+
+Your description (${word_count} words max):"""
     )
 
     WORLD_GEN_ROOM_CONNECTION = Template(
-        """The room ${room_name} has just been connected to a new room ${new_room_name} via the ${direction} path.
-Only update the room's path description to reflect this new connection. Current description: ${current_description}.
-Provide the new description.
-"""
+        """Room ${room_name} now connects ${direction} to ${new_room_name}.
+
+Current description:
+${current_description}
+
+Update briefly to mention the new ${direction} connection. Keep it concise (add 1 sentence max).
+
+Updated description:"""
     )
 
 

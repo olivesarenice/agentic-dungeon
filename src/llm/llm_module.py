@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import time
 
@@ -14,6 +15,25 @@ from tenacity import (
 )
 
 load_dotenv()
+
+# Configure debug logging for LLM calls
+LLM_DEBUG = os.environ.get("LLM_DEBUG", "false").lower() == "true"
+
+# Set up logger
+logger = logging.getLogger("llm_module")
+if LLM_DEBUG:
+    logger.setLevel(logging.DEBUG)
+    # Create console handler with formatting
+    handler = logging.StreamHandler()
+    handler.setLevel(logging.DEBUG)
+    formatter = logging.Formatter(
+        "\n%(asctime)s - %(name)s - %(levelname)s\n%(message)s\n",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+else:
+    logger.setLevel(logging.WARNING)
 
 # Configuration for Gemini
 GEMINI_MODEL_NAME = os.environ.get("GEMINI_MODEL_NAME", "gemini-2.5-flash")
@@ -106,6 +126,20 @@ class LLMModule:
             Exception: If the API call fails after all retries or if a
                        non-retriable error occurs.
         """
+        # Log the prompt if debug mode is enabled
+        if LLM_DEBUG:
+            logger.debug(f"=" * 80)
+            logger.debug(f"LLM PROMPT ({self.provider}):")
+            logger.debug(f"-" * 80)
+            logger.debug(
+                f"SYSTEM: {self.system_prompt[:200]}..."
+                if len(self.system_prompt) > 200
+                else f"SYSTEM: {self.system_prompt}"
+            )
+            logger.debug(f"-" * 80)
+            logger.debug(f"USER PROMPT:\n{prompt}")
+            logger.debug(f"-" * 80)
+
         if self.provider == "gemini":
             try:
                 # Generate content using the provided prompt
@@ -122,14 +156,27 @@ class LLMModule:
                     )
 
                 # Successfully got a response
-                return response.text
+                response_text = response.text
+
+                # Log the response if debug mode is enabled
+                if LLM_DEBUG:
+                    logger.debug(f"LLM RESPONSE ({self.provider}):")
+                    logger.debug(f"-" * 80)
+                    logger.debug(f"{response_text}")
+                    logger.debug(f"=" * 80)
+
+                return response_text
 
             except GEMINI_RETRYABLE_EXCEPTIONS as e:
                 # Re-raise the retriable exceptions so tenacity can catch them
+                if LLM_DEBUG:
+                    logger.debug(f"RETRIABLE ERROR: {e}")
                 raise e
 
             except Exception as e:
                 # Non-retriable errors (e.g., auth, bad request, or our block reason)
+                if LLM_DEBUG:
+                    logger.debug(f"NON-RETRIABLE ERROR: {e}")
                 raise Exception(f"A non-retriable error occurred: {e}")
         elif self.provider == "ollama":
             try:
@@ -146,8 +193,19 @@ class LLMModule:
                     data=json.dumps(data),
                 )
                 response.raise_for_status()  # Raise an exception for HTTP errors
-                return response.json()["response"]
+                response_text = response.json()["response"]
+
+                # Log the response if debug mode is enabled
+                if LLM_DEBUG:
+                    logger.debug(f"LLM RESPONSE ({self.provider}):")
+                    logger.debug(f"-" * 80)
+                    logger.debug(f"{response_text}")
+                    logger.debug(f"=" * 80)
+
+                return response_text
             except requests.exceptions.RequestException as e:
+                if LLM_DEBUG:
+                    logger.debug(f"OLLAMA ERROR: {e}")
                 raise Exception(f"Ollama API call failed: {e}")
         else:
             raise ValueError(f"Unsupported LLM provider: {self.provider}")

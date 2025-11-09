@@ -142,7 +142,9 @@ class WorldGenerator:
             d: desc if desc is not None else "unknown" for d, desc in paths.items()
         }
         prompt = PromptTemplates.WORLD_GEN_ROOM_DESCRIPTION.substitute(
-            word_count=100, room_name=room.name, room_paths=path_descriptions
+            word_count=GameConstants.DEFAULT_DESCRIPTION_WORDS,
+            room_name=room.name,
+            room_paths=path_descriptions,
         )
         description = self.dm_generator_module.get_response(prompt)
         room.update_description(description)

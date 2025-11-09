@@ -11,6 +11,7 @@ from llm import LLMModule, create_llm_module
 
 from .events import GameEvent
 from .memory import Memory, PlayerEntry, RoomEntry
+from .npc_personality import NPCPersonality, PersonalityType
 
 if TYPE_CHECKING:
     from controllers import PlayerController
@@ -31,6 +32,7 @@ class Player:
         controller: "PlayerController",
         player_type: PlayerType = PlayerType.HUMAN,
         llm_module: Optional[LLMModule] = None,
+        personality: Optional[NPCPersonality] = None,
     ):
         """
         Initialize a player.
@@ -41,6 +43,7 @@ class Player:
             controller: Controller for decision-making
             player_type: Type of player (HUMAN or NPC)
             llm_module: Optional LLM module for testing
+            personality: Optional NPC personality (auto-generated if NPC and not provided)
         """
         if not name:
             raise ValueError("Player name cannot be empty")
@@ -55,6 +58,14 @@ class Player:
         self.memory: Memory = Memory()
         self.controller = controller
 
+        # NPC personality system
+        if player_type == PlayerType.NPC:
+            self.personality: Optional[NPCPersonality] = (
+                personality or self._generate_random_personality()
+            )
+        else:
+            self.personality: Optional[NPCPersonality] = None
+
         # Load up the LLM memory with base prompt
         self.llm_module: LLMModule = llm_module or create_llm_module(
             self.DEFAULT_LLM_SYSTEM_PROMPT
@@ -66,6 +77,13 @@ class Player:
 
         # Update the LLM module with self-description
         self.update_llm_module()
+
+    def _generate_random_personality(self) -> NPCPersonality:
+        """Generate a random personality for an NPC."""
+        import random
+
+        personality_type = random.choice(list(PersonalityType))
+        return NPCPersonality(personality_type=personality_type)
 
     def describe_self(self) -> str:
         """Get a description of this player for LLM context."""
@@ -159,17 +177,44 @@ class Player:
 
     def synthesize_player_memory(self, player_name: str):
         """Update mental description of another player based on recent interactions."""
+        from llm import PromptBuilder
+
         recent_interaction_event = (
             self.memory.known_players[player_name].interaction_history[-1]
             if self.memory.known_players[player_name].interaction_history
             else None
         )
-        synthesize_prompt = f"""Update your mental description of {player_name} based on your most recent interaction with them.
-        Current Description: 
-        {self.memory.known_players[player_name].description if self.memory.known_players[player_name].description else 'No prior description.'}
-        ---
-        Recent Interaction: 
-        {recent_interaction_event.content if recent_interaction_event else 'No recent interactions.'}"""
+
+        current_description = (
+            self.memory.known_players[player_name].description
+            if self.memory.known_players[player_name].description
+            else "No prior description."
+        )
+
+        # Build detailed interaction content including action type, content, and room
+        if recent_interaction_event:
+            # Get room name if we know it
+            room_name = "Unknown room"
+            if recent_interaction_event.room_id in self.memory.known_rooms:
+                room_name = self.memory.known_rooms[
+                    recent_interaction_event.room_id
+                ].name
+
+            interaction_content = (
+                f"{player_name} performed action: {recent_interaction_event.action_type}\n"
+                f"Details: {recent_interaction_event.content}\n"
+                f"Location: {room_name}"
+            )
+        else:
+            interaction_content = "No recent interactions."
+
+        # Use PromptBuilder to get structured format
+        synthesize_prompt = PromptBuilder.build_memory_update_prompt(
+            player_name=player_name,
+            current_description=current_description,
+            interaction_content=interaction_content,
+        )
+
         new_description = self.llm_module.get_response(synthesize_prompt)
         self.memory.known_players[player_name].update_description(new_description)
         print(f"Player {self.name} updated memory of player {player_name}.")
@@ -177,6 +222,8 @@ class Player:
 
     def synthesize_room_memory(self, room_id: str):
         """Update mental description of a room based on recent observations."""
+        from llm import PromptBuilder
+
         recent_obs_event = (
             self.memory.known_rooms[room_id].observed_events[-1]
             if self.memory.known_rooms[room_id].observed_events
@@ -186,12 +233,31 @@ class Player:
         if not recent_obs_event:
             return
 
-        synthesize_prompt = f"""Update your mental description of {room_id} based on your most recent observations.
-        Current Description:
-        {self.memory.known_rooms[room_id].description if self.memory.known_rooms[room_id].description else 'No prior description.'}
-        ---
-        Recent Observation:
-        {recent_obs_event.actor_name} {recent_obs_event.action_type} in {recent_obs_event.room_id}"""
+        current_description = (
+            self.memory.known_rooms[room_id].description
+            if self.memory.known_rooms[room_id].description
+            else "No prior description."
+        )
+
+        # Build observation string from event with additional context
+        # Include information about players who have been seen in this room
+        all_players_seen = set()
+        for event in self.memory.known_rooms[room_id].observed_events:
+            if event.actor_name:
+                all_players_seen.add(event.actor_name)
+
+        observation = (
+            f"{recent_obs_event.actor_name} {recent_obs_event.action_type} in {recent_obs_event.room_id}\n"
+            f"All players previously seen in this room: {', '.join(all_players_seen) if all_players_seen else 'None'}"
+        )
+
+        # Use PromptBuilder to get structured format
+        synthesize_prompt = PromptBuilder.build_room_memory_update_prompt(
+            room_id=room_id,
+            current_description=current_description,
+            observation=observation,
+        )
+
         new_description = self.llm_module.get_response(synthesize_prompt)
         self.memory.known_rooms[room_id].update_description(new_description)
         print(f"Player {self.name} updated memory of room {room_id}.")

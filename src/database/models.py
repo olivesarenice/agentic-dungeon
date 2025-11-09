@@ -98,6 +98,9 @@ class DBPlayer(Base):
     description = Column(Text, nullable=False)
     created_at = Column(DateTime, nullable=False, default=datetime.now)
 
+    # NPC Personality (only for NPCs)
+    personality_type = Column(String)  # 'explorer', 'homebody', 'hostile', 'helpful'
+
     # Relationships
     world = relationship("DBWorld", back_populates="players")
     current_room = relationship("DBRoom", back_populates="players")

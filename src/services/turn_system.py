@@ -211,17 +211,27 @@ class TurnSystem:
 
         action = GameConfigs._actions[action_key]
 
-        # Use controller to get action details
-        action_prompt = player.controller.provide_action_details(action)
+        # Use controller to get action details - pass room context for NPCs
+        action_prompt = player.controller.provide_action_details(
+            action, current_room, players_map
+        )
 
         if action.name == ActionType.TALK.value:
+            from utils import Colors
+
             print(
-                f"Player {player.name} says: '{action_prompt}' to players in room {current_room.name}"
+                Colors.data_change(
+                    f"Player {player.name} says: '{action_prompt}' to players in room {current_room.name}"
+                )
             )
 
         elif action.name == ActionType.INTERACT.value:
+            from utils import Colors
+
             print(
-                f"Player {player.name} interacts with the room {current_room.name}: {action_prompt}"
+                Colors.data_change(
+                    f"Player {player.name} interacts with the room {current_room.name}: {action_prompt}"
+                )
             )
 
             # Update room description to reflect interaction
@@ -366,20 +376,28 @@ class TurnSystem:
 
                 if decision in available_moves:
                     # Player chose to MOVE
-                    print(f"\nPlayer <{player.name}> chose to MOVE {decision}.")
+                    from utils import Colors
+
+                    print(
+                        Colors.data_change(
+                            f"\nPlayer <{player.name}> chose to MOVE {decision}."
+                        )
+                    )
                     self.process_player_move(player, decision, players_map)
                 elif decision in available_action_keys:
                     # Player chose an ACTION
                     print(f"\nPlayer <{player.name}> chose to {decision}.")
                     self.process_player_action(player, decision, players_map)
                 else:
-                    # Invalid decision, default to first available move
-                    print(f"\nInvalid decision '{decision}', defaulting to move.")
+                    # Invalid decision, default to random move or action
+                    import random
+
+                    print(
+                        f"\nInvalid decision '{decision}', defaulting to random action."
+                    )
                     if available_moves:
-                        self.process_player_move(
-                            player, available_moves[0], players_map
-                        )
+                        chosen_move = random.choice(available_moves)
+                        self.process_player_move(player, chosen_move, players_map)
                     elif available_action_keys:
-                        self.process_player_action(
-                            player, available_action_keys[0], players_map
-                        )
+                        chosen_action = random.choice(available_action_keys)
+                        self.process_player_action(player, chosen_action, players_map)

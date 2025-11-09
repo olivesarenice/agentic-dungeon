@@ -115,6 +115,12 @@ class PlayerRepository:
             db_player.description = player.description
             db_player.player_type = player.player_type.value
 
+            # Update personality if NPC
+            if player.personality:
+                db_player.personality_type = player.personality.personality_type.value
+            else:
+                db_player.personality_type = None
+
             # Update memory - known players
             self.session.query(DBPlayerKnownPlayer).filter_by(
                 observer_id=player.id
@@ -244,27 +250,42 @@ class PlayerRepository:
         Returns:
             Domain player model
         """
+        from models import NPCPersonality, PersonalityType
+
         # Determine player type
         player_type = PlayerType(db_player.player_type)
 
-        # Create appropriate controller
+        # Restore personality for NPCs
+        personality = None
+        if player_type == PlayerType.NPC and db_player.personality_type:
+            try:
+                personality_type = PersonalityType(db_player.personality_type)
+                personality = NPCPersonality(personality_type=personality_type)
+            except ValueError:
+                # Invalid personality type, will generate random one
+                pass
+
+        # Create player with personality
+        player = Player(
+            name=db_player.name,
+            room_id=db_player.current_room_id,
+            controller=None,  # Set below
+            player_type=player_type,
+            personality=personality,
+        )
+        player.id = db_player.id
+        player.description = db_player.description
+
+        # Create appropriate controller with player reference
         if player_type == PlayerType.HUMAN:
             controller = HumanController()
         elif player_type == PlayerType.NPC:
             llm_module = create_llm_module(Player.DEFAULT_LLM_SYSTEM_PROMPT)
-            controller = AIController(llm_module)
+            controller = AIController(llm_module, player=player)
         else:
             raise ValueError(f"Unknown player type: {player_type}")
 
-        # Create player
-        player = Player(
-            name=db_player.name,
-            room_id=db_player.current_room_id,
-            controller=controller,
-            player_type=player_type,
-        )
-        player.id = db_player.id
-        player.description = db_player.description
+        player.controller = controller
 
         # Restore memory - known players
         for db_known in db_player.known_players:
@@ -311,6 +332,11 @@ class PlayerRepository:
         Returns:
             Database player model
         """
+        # Get personality type value if NPC has personality
+        personality_type_value = None
+        if player.personality:
+            personality_type_value = player.personality.personality_type.value
+
         return DBPlayer(
             id=player.id,
             world_id=self.world_id,
@@ -318,5 +344,6 @@ class PlayerRepository:
             current_room_id=player.room_id,
             player_type=player.player_type.value,
             description=player.description,
+            personality_type=personality_type_value,
             created_at=datetime.now(),
         )

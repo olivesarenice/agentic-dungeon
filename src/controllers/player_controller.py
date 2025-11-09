@@ -33,12 +33,16 @@ class PlayerController(ABC):
         pass
 
     @abstractmethod
-    def provide_action_details(self, action: Action) -> str:
+    def provide_action_details(
+        self, action: Action, current_room=None, players_map=None
+    ) -> str:
         """
         Provide additional details for an action.
 
         Args:
             action: The action being performed
+            current_room: The current room (optional, for context)
+            players_map: Dictionary of all players (optional, for context)
 
         Returns:
             Details string for the action
@@ -71,12 +75,11 @@ class HumanController(PlayerController):
         ).upper()
 
         if direction not in available_directions:
-            print(
-                Colors.player_info(
-                    f"Invalid direction. Defaulting to {available_directions[0]}"
-                )
-            )
-            return available_directions[0]
+            import random
+
+            fallback = random.choice(available_directions)
+            print(Colors.player_info(f"Invalid direction. Defaulting to {fallback}"))
+            return fallback
 
         return direction
 
@@ -124,7 +127,9 @@ class HumanController(PlayerController):
             return self._decide_move(context)
         return options[0][0]
 
-    def provide_action_details(self, action: Action) -> str:
+    def provide_action_details(
+        self, action: Action, current_room=None, players_map=None
+    ) -> str:
         """Prompt human player for action details."""
         return safe_input(
             f"{action.player_prompt} (or /q to quit): ", Colors.input_prompt
@@ -134,21 +139,50 @@ class HumanController(PlayerController):
 class AIController(PlayerController):
     """Controller for AI players using LLM."""
 
-    def __init__(self, llm_module):
-        """Initialize with LLM module."""
+    def __init__(self, llm_module, player: Optional["Player"] = None):
+        """
+        Initialize with LLM module.
+
+        Args:
+            llm_module: LLM module for decisions
+            player: Optional reference to the player (for personality access)
+        """
         self.llm_module = llm_module
         self.last_direction: Optional[str] = None
+        self.player = player
 
-    def _should_move(self) -> bool:
+    def _should_move(self, context: dict) -> bool:
         """
-        Randomly decide if NPC should move based on configured probability.
+        Decide if NPC should move based on personality and context.
+
+        Args:
+            context: Context including current_room
 
         Returns:
             True if NPC should move, False if should perform action
         """
         import random
 
-        return random.random() < GameConstants.NPC_MOVE_PROBABILITY
+        # Default: use configured probability
+        if not self.player or not self.player.personality:
+            return random.random() < GameConstants.NPC_MOVE_PROBABILITY
+
+        # Get context
+        current_room = context.get("current_room")
+        if not current_room:
+            return random.random() < GameConstants.NPC_MOVE_PROBABILITY
+
+        # Use personality-based decision
+        has_other_players = len(current_room.players_inside) > 1
+        weights = self.player.personality.get_action_weights(has_other_players)
+
+        # Calculate probability
+        total_weight = sum(weights.values())
+        if total_weight == 0:
+            return random.random() < GameConstants.NPC_MOVE_PROBABILITY
+
+        move_probability = weights["MOVE"] / total_weight
+        return random.random() < move_probability
 
     def decide(self, decision_type: DecisionType, context: dict) -> str:
         """Get decision from AI using LLM."""
@@ -162,8 +196,8 @@ class AIController(PlayerController):
             if not available_directions:
                 return self._decide_action(context)
 
-            # Randomly decide based on NPC_MOVE_PROBABILITY
-            if self._should_move():
+            # Decide based on personality (or probability if no personality)
+            if self._should_move(context):
                 # Choose to MOVE - return a direction
                 return self._decide_move(context)
             else:
@@ -214,18 +248,24 @@ class AIController(PlayerController):
         # Fallback: prefer non-backtracking direction
         if self.last_direction:
             try:
+                import random
+
                 current_dir = Direction(self.last_direction)
                 opposite_value = current_dir.opposite.value
                 non_backtrack = [d for d in available_directions if d != opposite_value]
                 if non_backtrack:
-                    self.last_direction = non_backtrack[0]
-                    return non_backtrack[0]
+                    chosen = random.choice(non_backtrack)
+                    self.last_direction = chosen
+                    return chosen
             except ValueError:
                 pass
 
-        # Ultimate fallback
-        self.last_direction = available_directions[0]
-        return available_directions[0]
+        # Ultimate fallback - pick random direction
+        import random
+
+        chosen = random.choice(available_directions)
+        self.last_direction = chosen
+        return chosen
 
     def _decide_action(self, context: dict) -> str:
         """Use LLM to decide action."""
@@ -254,11 +294,68 @@ Choose one action by name."""
         # Fallback
         return available_actions[0].name
 
-    def provide_action_details(self, action: Action) -> str:
-        """Use LLM to provide action details."""
-        prompt = f"{action.player_prompt}"
+    def provide_action_details(
+        self, action: Action, current_room=None, players_map=None
+    ) -> str:
+        """Use LLM to provide action details with room and personality context."""
+        from llm import PromptTemplates
+
+        # Get NPC name
+        npc_name = self.player.name if self.player else "Character"
+
+        # Get room context
+        room_name = current_room.name if current_room else "Unknown Room"
+        room_description = (
+            current_room.description if current_room else "A mysterious place"
+        )
+
+        # Get other players in room
+        other_players = "None"
+        if current_room and players_map:
+            other_player_names = [
+                players_map[pid].name
+                for pid in current_room.players_inside
+                if pid in players_map
+            ]
+            if other_player_names:
+                other_players = ", ".join(other_player_names)
+
+        # Add personality context to the action prompt
+        enhanced_prompt = action.player_prompt
+        if self.player and self.player.personality:
+            personality = self.player.personality
+            personality_desc = personality.get_personality_description()
+
+            # Add tone/intent based on action type
+            if action.name == "TALK":
+                tone = personality.get_talk_tone()
+                enhanced_prompt = f"{personality_desc} Speak in a {tone} manner. {action.player_prompt}"
+            elif action.name == "INTERACT":
+                intent = personality.get_interact_intent()
+                enhanced_prompt = f"{personality_desc} Your intent is {intent}. {action.player_prompt}"
+            else:
+                enhanced_prompt = f"{personality_desc} {action.player_prompt}"
+
+        # Use the concise NPC action prompt template with context
+        prompt = PromptTemplates.NPC_ACTION_PROMPT.substitute(
+            npc_name=npc_name,
+            room_name=room_name,
+            room_description=room_description,
+            other_players=other_players,
+            player_prompt=enhanced_prompt,
+        )
+
         response = self.llm_module.get_response(prompt)
-        return response.strip()[: GameConstants.MAX_ACTION_DETAIL_LENGTH]
+
+        # Trim response and ensure it's concise
+        response = response.strip()
+
+        # If still too long, take first 2 sentences
+        sentences = response.split(".")
+        if len(sentences) > 2:
+            response = ". ".join(sentences[:2]) + "."
+
+        return response[: GameConstants.MAX_ACTION_DETAIL_LENGTH]
 
 
 class MockController(PlayerController):
@@ -290,6 +387,8 @@ class MockController(PlayerController):
         else:
             raise ValueError(f"Unknown decision type: {decision_type}")
 
-    def provide_action_details(self, action: Action) -> str:
+    def provide_action_details(
+        self, action: Action, current_room=None, players_map=None
+    ) -> str:
         """Return mock action details."""
         return f"Mock details for {action.name}"
