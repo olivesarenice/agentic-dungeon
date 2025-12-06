@@ -30,6 +30,9 @@ class DBWorld(Base):
     theme = Column(
         String, nullable=True
     )  # Free-text world theme/description (e.g., "middle-earth with castles")
+    art_style = Column(
+        String, nullable=True, default="retro_anime"
+    )  # Art style for image generation (e.g., "retro_anime", "pixel_art", "photorealistic", "high_fantasy")
     created_at = Column(DateTime, nullable=False, default=datetime.now)
     last_played_at = Column(DateTime, nullable=False, default=datetime.now)
     starting_coords_x = Column(Integer, nullable=False, default=0)
@@ -59,6 +62,7 @@ class DBRoom(Base):
     coords_y = Column(Integer, nullable=False)
     description = Column(Text, nullable=False)
     created_at = Column(DateTime, nullable=False, default=datetime.now)
+    image_filepath = Column(String, nullable=True)  # Path to generated scene image
 
     # Relationships
     world = relationship("DBWorld", back_populates="rooms")

@@ -6,6 +6,7 @@ from typing import Optional
 
 from config.constants import GameConstants
 from models import Room
+from utils.colors import Colors
 
 
 class CLIRenderer:
@@ -100,3 +101,18 @@ class CLIRenderer:
             line = "".join([grid.get((c, r), " ") for c in range(grid_w)])
             print(line)
         print("=" * grid_w + "\n")
+
+    def display_room_scene(self, room: Room) -> None:
+        """
+        Display room scene information including image filepath if available.
+
+        Args:
+            room: The room to display scene information for
+        """
+        if room.image_filepath:
+            print(
+                f"\n{Colors.BLUE}🖼️  Room Scene Image:{Colors.RESET} {room.image_filepath}"
+            )
+            print(
+                f"{Colors.BLUE}   (Click to view the generated backdrop){Colors.RESET}\n"
+            )

@@ -28,6 +28,7 @@ class Room:
         self.paths: dict[str, str] = {}  # {"N":room_id, "S":room_id}
         self.players_inside: set[str] = set()  # {player_id}
         self.description = description
+        self.image_filepath: str | None = None  # Path to generated scene image
         # Note: Room creation message removed - it was printing on every DB load
 
     @staticmethod

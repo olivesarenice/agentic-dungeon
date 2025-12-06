@@ -8,8 +8,9 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from config import GameConfigs
-from config.constants import GameConstants
+from config.constants import GameConstants, ImageGenerationConstants
 from llm import LLMModule, PromptTemplates, create_llm_module
+from llm.text2img_module import Text2ImageGenerator, create_text2img_generator
 from models import Room
 from repositories import RoomRepository, WorldRepository
 
@@ -32,10 +33,13 @@ class WorldGenerator:
         self.world_id = world_id
         self.room_repo = RoomRepository(session, world_id)
 
-        # Get world theme
+        # Get world theme and art style
         world_repo = WorldRepository(session)
         db_world = world_repo.get(world_id)
         self.world_theme = db_world.theme if db_world and db_world.theme else None
+        self.world_art_style = (
+            db_world.art_style if db_world and db_world.art_style else "retro_anime"
+        )
 
         # LLM for room descriptions - include world theme in system prompt
         dm_system_prompt = PromptTemplates.DM_SYSTEM_PROMPT
@@ -43,6 +47,18 @@ class WorldGenerator:
             dm_system_prompt = f"{dm_system_prompt}\n\nIMPORTANT: This world has the following theme/setting:\n{self.world_theme}\n\nAll room names and descriptions should fit this theme."
 
         self.dm_generator_module: LLMModule = create_llm_module(dm_system_prompt)
+
+        # Initialize text-to-image generator if enabled
+        self.image_generator: Optional[Text2ImageGenerator] = None
+        if ImageGenerationConstants.ENABLED:
+            try:
+                self.image_generator = create_text2img_generator(
+                    output_dir=ImageGenerationConstants.OUTPUT_DIR
+                )
+                print("Image generation enabled")
+            except Exception as e:
+                print(f"Warning: Could not initialize image generator: {e}")
+                print("Continuing without image generation...")
 
     def _translate(
         self, current_coords: tuple[int, int], move_direction: str
@@ -73,6 +89,80 @@ class WorldGenerator:
             adjacent_room = self.room_repo.get_by_coords(c[0], c[1])
             rooms[d] = adjacent_room
         return rooms
+
+    def _generate_room_scene_image(
+        self, room: Room, reference_image_path: Optional[str] = None
+    ) -> None:
+        """
+        Generate a scene image for the room and update the room's image_filepath.
+
+        Args:
+            room: The room to generate an image for
+            reference_image_path: Optional path to existing image for grounding/consistency
+        """
+        if not self.image_generator:
+            return
+
+        try:
+            # Get the art style for this world
+            art_style = ImageGenerationConstants.ART_STYLES.get(
+                self.world_art_style, ImageGenerationConstants.ART_STYLES["retro_anime"]
+            )
+
+            # Build the prompt based on whether we have a reference image
+            if reference_image_path:
+                # Updating existing room - use reference for consistency
+                prompt = f"""You are an artist for a D&D game.
+
+You draw scenes in the style of: {art_style}
+
+--- Room Scene Update ---
+Room: {room.name}
+Updated description: {room.description}
+
+IMPORTANT: Use the reference image provided to maintain visual consistency. Keep the same overall composition, lighting, and architectural elements, but update the scene to reflect the new description. The room should feel like the same location, just with modifications based on the updated description.
+
+Draw the scene WITHOUT any people or characters. Show only the environment and location."""
+            else:
+                # New room - create from scratch
+                prompt = f"""You are an artist for a D&D game.
+
+You draw scenes in the style of: {art_style}
+
+--- Room Scene ---
+Room: {room.name}
+Room description: {room.description}
+
+Create a cinematic, atmospheric scene that captures the essence of this room. Draw the scene WITHOUT any people or characters. Show only the environment and location."""
+
+            # Generate the image
+            filename = f"room_{room.id}"
+            reference_images = [reference_image_path] if reference_image_path else None
+
+            image_path = self.image_generator.generate_image(
+                prompt=prompt,
+                output_filename=filename,
+                aspect_ratio="16:9",
+                image_size="2K",
+                reference_images=reference_images,
+            )
+
+            # Update room with image path
+            room.image_filepath = image_path
+
+            # Persist to database
+            self.room_repo.update(room)
+
+            if reference_image_path:
+                print(
+                    f"✨ Updated scene image for {room.name} (with grounding): {image_path}"
+                )
+            else:
+                print(f"✨ Generated scene image for {room.name}: {image_path}")
+
+        except Exception as e:
+            print(f"Warning: Could not generate image for room {room.name}: {e}")
+            # Continue without image
 
     def create_room(
         self,
@@ -220,32 +310,16 @@ class WorldGenerator:
         # Save room to database
         self.room_repo.add(room)
 
-        # Update paths of connected rooms
+        # Generate scene image for the new room
+        self._generate_room_scene_image(room)
+
+        # Update paths of connected rooms (but don't regenerate descriptions/images)
         for d, room_id in room.paths.items():
             if room_id:
                 aroom = self.room_repo.get(room_id)
                 if aroom:
+                    # Just update the path connection
                     aroom.paths[GameConfigs._moves[d].pole] = room.id
-
-                    prompt = PromptTemplates.WORLD_GEN_ROOM_CONNECTION.substitute(
-                        room_name=aroom.name,
-                        new_room_name=room.name,
-                        direction=GameConfigs._moves[d].pole,
-                        current_description=aroom.description,
-                    )
-                    new_description = self.dm_generator_module.get_response(prompt)
-
-                    print(
-                        f"\033[92m"
-                        f"""
-                    Adjacent room {aroom.name} updated:
-                    FROM = {aroom.description}.
-                    
-                    TO = {new_description}"""
-                        f"\033[0m\n"
-                    )
-
-                    aroom.update_description(new_description)
                     # Update in database
                     self.room_repo.update(aroom)
 

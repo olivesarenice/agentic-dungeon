@@ -49,10 +49,29 @@ def main():
         if not world_theme:
             world_theme = None
 
+        # Ask for art style
+        print("\nSelect art style for room scene generation:")
+        print("  1. Retro Anime (90s anime style like Cowboy Bebop)")
+        print("  2. Pixel Art (16-bit retro RPG style)")
+        print("  3. Photorealistic (Cinematic film photography)")
+        print("  4. High Fantasy (Traditional watercolor & oil painting)")
+        art_style_choice = input(
+            "\nArt style (1-4, or press Enter for Retro Anime): "
+        ).strip()
+
+        art_style_map = {
+            "1": "retro_anime",
+            "2": "pixel_art",
+            "3": "photorealistic",
+            "4": "high_fantasy",
+        }
+        art_style = art_style_map.get(art_style_choice, "retro_anime")
+
         db_world = DBWorld(
             id=world_id,
             name=world_name,
             theme=world_theme,
+            art_style=art_style,
             created_at=datetime.now(),
             last_played_at=datetime.now(),
             starting_coords_x=0,
@@ -91,10 +110,29 @@ def main():
             if not world_theme:
                 world_theme = None
 
+            # Ask for art style
+            print("\nSelect art style for room scene generation:")
+            print("  1. Retro Anime (90s anime style like Cowboy Bebop)")
+            print("  2. Pixel Art (16-bit retro RPG style)")
+            print("  3. Photorealistic (Cinematic film photography)")
+            print("  4. High Fantasy (Traditional watercolor & oil painting)")
+            art_style_choice = input(
+                "\nArt style (1-4, or press Enter for Retro Anime): "
+            ).strip()
+
+            art_style_map = {
+                "1": "retro_anime",
+                "2": "pixel_art",
+                "3": "photorealistic",
+                "4": "high_fantasy",
+            }
+            art_style = art_style_map.get(art_style_choice, "retro_anime")
+
             db_world = DBWorld(
                 id=world_id,
                 name=world_name,
                 theme=world_theme,
+                art_style=art_style,
                 created_at=datetime.now(),
                 last_played_at=datetime.now(),
                 starting_coords_x=0,

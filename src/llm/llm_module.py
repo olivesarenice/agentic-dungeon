@@ -6,10 +6,10 @@ from abc import ABC, abstractmethod
 from typing import Optional
 
 import boto3
-import google.generativeai as genai
 import requests
 from dotenv import load_dotenv
-from google.api_core import exceptions as google_exceptions
+from google import genai
+from google.genai import types
 from tenacity import (
     retry,
     retry_if_exception_type,
@@ -70,15 +70,11 @@ class LLMProvider(ABC):
 
 
 class GeminiProvider(LLMProvider):
-    """Provider for Google Gemini models."""
+    """Provider for Google Gemini models using the new google-genai library."""
 
-    # Retryable exceptions for Gemini
-    RETRYABLE_EXCEPTIONS = (
-        google_exceptions.ResourceExhausted,  # 429 Too Many Requests
-        google_exceptions.DeadlineExceeded,  # 504 Timeout
-        google_exceptions.InternalServerError,  # 500 Internal Server Error
-        google_exceptions.ServiceUnavailable,  # 503 Service Unavailable
-    )
+    # Retryable exception types - using base Exception for now as the new library
+    # may have different exception structure
+    RETRYABLE_EXCEPTIONS = (Exception,)
 
     def __init__(
         self,
@@ -95,20 +91,23 @@ class GeminiProvider(LLMProvider):
             )
 
         self.model_name = model_name or os.environ.get(
-            "GEMINI_MODEL_NAME", "gemini-2.5-flash"
+            "GEMINI_MODEL_NAME", "gemini-2.0-flash-exp"
         )
 
-        genai.configure(api_key=self.api_key)
-        self.model = genai.GenerativeModel(
-            model_name=self.model_name,
-            system_instruction=self.system_prompt,
-        )
+        # Initialize the new genai Client
+        self.client = genai.Client(api_key=self.api_key)
 
     def get_provider_name(self) -> str:
         return "gemini"
 
+    def _is_retriable_error(self, exception: Exception) -> bool:
+        """Check if an exception is retriable based on error message or type."""
+        error_str = str(exception).lower()
+        retriable_keywords = ["429", "503", "504", "timeout", "deadline", "resource"]
+        return any(keyword in error_str for keyword in retriable_keywords)
+
     @retry(
-        retry=retry_if_exception_type(RETRYABLE_EXCEPTIONS),
+        retry=retry_if_exception_type(Exception),
         stop=stop_after_attempt(5),
         wait=wait_exponential(multiplier=1, min=1, max=20),
         before_sleep=lambda retry_state: print(
@@ -121,33 +120,37 @@ class GeminiProvider(LLMProvider):
         try:
             # Use provided temperature or default to 0.7
             temp = temperature if temperature is not None else 0.7
-            generation_config = genai.types.GenerationConfig(
-                temperature=temp,
-            )
-            response = self.model.generate_content(
-                prompt, generation_config=generation_config
+
+            # Use the new API with GenerateContentConfig
+            response = self.client.models.generate_content(
+                model=self.model_name,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    temperature=temp,
+                    system_instruction=self.system_prompt,
+                ),
             )
 
-            # Check for empty or blocked responses
-            if not response.candidates or not response.candidates[0].content.parts:
-                block_reason = "Unknown"
-                if response.prompt_feedback:
-                    block_reason = response.prompt_feedback.block_reason.name
-                raise Exception(
-                    f"Request was blocked or returned no content. Reason: {block_reason}"
-                )
+            # Extract text from response
+            if not response.text:
+                raise Exception("Request returned no content")
 
             return response.text
 
-        except self.RETRYABLE_EXCEPTIONS as e:
-            if LLM_DEBUG:
-                logger.debug(f"RETRIABLE ERROR: {e}")
-            raise e
-
         except Exception as e:
+            error_message = str(e)
             if LLM_DEBUG:
-                logger.debug(f"NON-RETRIABLE ERROR: {e}")
-            raise Exception(f"A non-retriable error occurred: {e}")
+                logger.debug(f"GEMINI ERROR: {error_message}")
+
+            # Check if this is a retriable error
+            if self._is_retriable_error(e):
+                if LLM_DEBUG:
+                    logger.debug(f"RETRIABLE ERROR: {e}")
+                raise e
+            else:
+                if LLM_DEBUG:
+                    logger.debug(f"NON-RETRIABLE ERROR: {e}")
+                raise Exception(f"A non-retriable error occurred: {e}")
 
 
 class OllamaProvider(LLMProvider):

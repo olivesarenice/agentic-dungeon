@@ -244,9 +244,13 @@ class TurnSystem:
             print(
                 f"\033[92mRoom {current_room.name} updated description:\nFROM = {current_room.description}\nTO = {dm_description}\033[0m\n"
             )
+
             current_room.update_description(dm_description)
             # **CRITICAL**: Persist updated room description to database
             self.world_generator.room_repo.update(current_room)
+
+            # Note: Image regeneration on INTERACT disabled to save API costs
+            # Images are only generated once when rooms are first created
 
         # Get witnesses (from current player locations)
         witnesses = [
@@ -303,6 +307,9 @@ class TurnSystem:
         print(f"\033[93m\n--- Player {player.name}'s Turn ---\033[0m")
         print(f"\033[93mYou are in room: {current_room.name} \n \033[0m")
         print(f"\033[93mRoom description: {current_room.description} \n \033[0m")
+
+        # Display room scene image if available
+        self.renderer.display_room_scene(current_room)
 
         other_players = [
             players_map[pid].name

@@ -109,6 +109,7 @@ class RoomRepository:
             db_room.description = room.description
             db_room.coords_x = room.coords[0]
             db_room.coords_y = room.coords[1]
+            db_room.image_filepath = room.image_filepath
 
             # Update paths - delete old, add new
             self.session.query(DBRoomPath).filter_by(room_id=room.id).delete()
@@ -169,6 +170,7 @@ class RoomRepository:
         room.id = db_room.id
         room.name = db_room.name
         room.description = db_room.description
+        room.image_filepath = db_room.image_filepath
 
         # Convert paths
         room.paths = {path.direction: path.connected_room_id for path in db_room.paths}
@@ -195,5 +197,6 @@ class RoomRepository:
             coords_x=room.coords[0],
             coords_y=room.coords[1],
             description=room.description,
+            image_filepath=room.image_filepath,
             created_at=datetime.now(),
         )

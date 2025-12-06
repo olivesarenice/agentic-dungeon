@@ -20,8 +20,8 @@ class GameConstants:
     # Player limits
     MAX_PLAYERS = 10
     MAX_ACTION_DETAIL_LENGTH = 200
-    N_NPCS = 5
-    N_HUMANS = 1
+    N_NPCS = 1
+    N_HUMANS = 0
 
     # NPC behavior
     NPC_MOVE_PROBABILITY = 0.2  # 0.0 = never move, 1.0 = always move (vs TALK/INTERACT)
@@ -42,3 +42,37 @@ class LLMConstants:
     # Retry settings
     MAX_RETRIES = 3
     RETRY_DELAY = 1.0
+
+
+class ImageGenerationConstants:
+    """Image generation constants."""
+
+    # Enable/disable image generation
+    ENABLED = True
+
+    # Art style presets for room scenes
+    ART_STYLES = {
+        "retro_anime": """Retro 90s anime style screenshot. Hand-painted background textures with visible brushstrokes, distinct high-contrast white highlights, VHS film grain effect, slight color bleeding, muted color palette with occasional vibrant accents. The style should evoke nostalgia for classic anime like Cowboy Bebop and Samurai Champloo. 4:3 aspect ratio aesthetic.""",
+        "pixel_art": """16-bit pixel art scene that looks like a screenshot from a 1990s console RPG. Use a limited color palette (256 colors max), visible square pixel grid structure, dithering technique for shadows and gradients, clean pixel edges without anti-aliasing. The scene should have the charm of classic SNES/Genesis era games. 4:3 aspect ratio aesthetic.""",
+        "photorealistic": """Cinematic photorealistic still with film camera aesthetics. 35mm lens equivalent, f/2.8 aperture for shallow depth of field. Dramatic three-point lighting: harsh key light creating strong shadows, soft fill light to reduce contrast, subtle rim/back light for depth. Include environmental details like atmospheric haze, light rays, floating dust particles. Teal and orange color grade, slightly desaturated for cinematic tension. 4K resolution quality, 2.39:1 cinematic framing.""",
+        "high_fantasy": """High Fantasy Traditional Illustration combining watercolor fluidity with oil painting richness. This must look like a physical painting by a master artist, not a digital render. Use traditional media illustration techniques: visible brushwork, pigment granulation, watercolor washes and bleeds on textured paper, combined with oil paint's opacity and rich pigment density. Frame as a portrait composition with the subject central and dominating. Extremely detailed with ornate elements: armor etched with runes and filigree, ancient gnarled roots with luminescent moss, richly embroidered clothing. Rich, deep, saturated color palette like high-quality oil pigments. Soft diffused lighting giving a luminous painted quality. The final result should feel like a full-page plate from an expensive limited-edition fantasy tome.""",
+    }
+
+    # Current selected style (change this to switch styles)
+    # Options: "retro_anime", "pixel_art", "photorealistic", "high_fantasy"
+    SELECTED_STYLE = "retro_anime"
+
+    @classmethod
+    def get_art_style(cls) -> str:
+        """Get the currently selected art style prompt."""
+        return cls.ART_STYLES.get(cls.SELECTED_STYLE, cls.ART_STYLES["retro_anime"])
+
+    # Convenience property to maintain backward compatibility
+    DEFAULT_ART_STYLE = ART_STYLES["retro_anime"]
+
+    # Image configuration
+    ASPECT_RATIO = "16:9"
+    IMAGE_SIZE = "2K"
+
+    # Output directory for generated images
+    OUTPUT_DIR = "generated_images"
