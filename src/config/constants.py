@@ -21,7 +21,7 @@ class GameConstants:
     MAX_PLAYERS = 10
     MAX_ACTION_DETAIL_LENGTH = 200
     N_NPCS = 5
-    N_HUMANS = 0
+    N_HUMANS = 1
 
     # NPC behavior
     NPC_MOVE_PROBABILITY = 0.2  # 0.0 = never move, 1.0 = always move (vs TALK/INTERACT)

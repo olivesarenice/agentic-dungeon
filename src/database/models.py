@@ -27,6 +27,9 @@ class DBWorld(Base):
 
     id = Column(String, primary_key=True)
     name = Column(String, nullable=False)
+    theme = Column(
+        String, nullable=True
+    )  # Free-text world theme/description (e.g., "middle-earth with castles")
     created_at = Column(DateTime, nullable=False, default=datetime.now)
     last_played_at = Column(DateTime, nullable=False, default=datetime.now)
     starting_coords_x = Column(Integer, nullable=False, default=0)

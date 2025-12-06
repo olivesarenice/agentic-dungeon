@@ -150,23 +150,60 @@ Think D&D session notes, not novel writing.
 """
 
     # World generation prompts (used by WorldGenerator) - CONCISE D&D style
+    WORLD_GEN_ROOM_NAME = Template(
+        """Generate a short, evocative name for this D&D room/location.
+
+${adjacent_rooms}
+
+CRITICAL: Your response must be ONLY the room name. No explanations, no parentheses, no additional text.
+
+Guidelines:
+- Keep it SHORT (2-4 words max)
+- If connected to other rooms, the name can relate to them OR introduce something new
+- Consider natural transitions (e.g., "Moss-Covered Hall" → "Deep Moss Cavern") OR forward progress into new areas
+
+Good examples:
+- Natural transition: "The Echoing Hall" → "Echo Chamber Depths"
+- New biome: "Stone Corridor" → "Fungal Grotto"
+- Standalone: "Starlit Observatory", "Crumbling Bridge"
+
+Bad examples:
+- "Thorlda's Mystical Tower of Ancient Secrets" (TOO LONG)
+- "Room 5" (TOO GENERIC)
+- "The Threshold Passage (Suggests...)" (ADDING EXPLANATIONS - NEVER DO THIS)
+
+Your room name (2-4 words only):"""
+    )
+
     WORLD_GEN_ROOM_DESCRIPTION = Template(
         """Describe this ${word_count}-word room for a D&D game:
 Room: ${room_name}
 Exits: ${room_paths}
 
-IMPORTANT: Be concise and atmospheric. Focus on:
-1. What you see/hear/smell (sensory details)
-2. Notable features
-3. Mood/atmosphere
+${adjacent_rooms}
 
-Good example (40 words):
-"A damp stone chamber. Water drips from moss-covered walls. Ancient runes glow faintly blue, casting dancing shadows. The air smells of earth and old magic. Passages lead north and east into darkness."
+CRITICAL: Your response must be ONLY the pure description text. DO NOT include the room name.
 
-Bad example (TOO VERBOSE/FLOWERY):
-"As you enter this magnificent chamber, you are immediately struck by..."
+IMPORTANT: Create a room with DRAMATIC progression and its own unique character.
+- If adjacent rooms describe a biome (e.g., crystals, fungi, water), STAY in that biome BUT show DRAMATIC changes within it
+- Think: "Moss-covered stones" → "DENSE moss choking ancient pillars" → "Moss transforms into LIVING VINES"
+- Think: "Crystal formations" → "MASSIVE crystal spires" → "Crystals PULSE with inner light"
+- Each room should feel like a SIGNIFICANT step deeper/forward, not just "more of the same"
+- Include sensory details (see/hear/smell/feel) that INTENSIFY or SHIFT
+- ONE memorable feature that's DIFFERENT from adjacent rooms
+- Show evolution, escalation, or transformation within the biome
 
-Your description (${word_count} words max):"""
+Good examples:
+- Natural transition: From "Moss Hall" → "Deeper moss creeps across cracked stone. Moisture drips steadily. The air grows thick with earth-scent."
+- New biome: From "Stone Corridor" → "Glowing fungi spread across the walls. Spores drift lazily in still air. Everything pulses with soft bioluminescence."
+- Unique standalone: "Ancient runes spiral across the floor. Faint blue light traces their patterns. The silence here feels almost sacred."
+
+Bad examples:
+- INCLUDING ROOM NAME: "The Echoing Hall is a chamber..." (NEVER DO THIS)
+- TOO SIMILAR: Exactly copying adjacent room descriptions
+- TOO VAGUE: "A room with stone walls and exits."
+
+Your description (${word_count} words max, NO room name):"""
     )
 
     WORLD_GEN_ROOM_CONNECTION = Template(

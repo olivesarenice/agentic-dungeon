@@ -17,4 +17,5 @@ dependencies = [
     "loguru>=0.7.3",
     "sqlalchemy>=2.0.44",
     "alembic>=1.17.1",
+    "boto3>=1.28.0",
 ]

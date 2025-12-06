@@ -11,7 +11,7 @@ from config import GameConfigs
 from config.constants import GameConstants
 from llm import LLMModule, PromptTemplates, create_llm_module
 from models import Room
-from repositories import RoomRepository
+from repositories import RoomRepository, WorldRepository
 
 
 class WorldGenerator:
@@ -32,10 +32,17 @@ class WorldGenerator:
         self.world_id = world_id
         self.room_repo = RoomRepository(session, world_id)
 
-        # LLM for room descriptions
-        self.dm_generator_module: LLMModule = create_llm_module(
-            PromptTemplates.DM_SYSTEM_PROMPT
-        )
+        # Get world theme
+        world_repo = WorldRepository(session)
+        db_world = world_repo.get(world_id)
+        self.world_theme = db_world.theme if db_world and db_world.theme else None
+
+        # LLM for room descriptions - include world theme in system prompt
+        dm_system_prompt = PromptTemplates.DM_SYSTEM_PROMPT
+        if self.world_theme:
+            dm_system_prompt = f"{dm_system_prompt}\n\nIMPORTANT: This world has the following theme/setting:\n{self.world_theme}\n\nAll room names and descriptions should fit this theme."
+
+        self.dm_generator_module: LLMModule = create_llm_module(dm_system_prompt)
 
     def _translate(
         self, current_coords: tuple[int, int], move_direction: str
@@ -91,11 +98,42 @@ class WorldGenerator:
             f"Creating room at {coords} from room {from_room.id if from_room else 'None'}"
         )
 
-        room = Room(coords)
-        paths = {}
+        # Get adjacent rooms info before creating the room (we need coords but not a full Room object yet)
+        # Temporarily create a basic room object just to get adjacent room info
+        temp_room = Room(coords)
+        adjacent_rooms = self._get_adjacent_rooms(temp_room)
 
-        # Get adjacent rooms from database
-        adjacent_rooms = self._get_adjacent_rooms(room)
+        # Generate room name with LLM using adjacent room context
+        # Add randomness: 30% chance to introduce a completely new biome/discovery
+        import random
+
+        should_introduce_new_biome = random.random() < 0.3  # 30% chance
+
+        adjacent_hints = []
+        for direction, aroom in adjacent_rooms.items():
+            if aroom:
+                adjacent_hints.append(f"{direction.upper()}: connects to {aroom.name}")
+
+        if adjacent_hints:
+            adjacent_context = "Connected areas: " + ", ".join(adjacent_hints)
+            if should_introduce_new_biome:
+                adjacent_context += "\n\nSPECIAL: This room opens up into a COMPLETELY NEW area - introduce a surprising discovery or biome shift! Examples: sudden cavern, hidden garden, trapped library, crystal chamber, etc."
+        else:
+            adjacent_context = "This is the first room in an unexplored area"
+
+        name_prompt = PromptTemplates.WORLD_GEN_ROOM_NAME.substitute(
+            adjacent_rooms=adjacent_context
+        )
+        generated_name = self.dm_generator_module.get_response(name_prompt).strip()
+        # Remove quotes if the LLM added them
+        generated_name = generated_name.strip('"').strip("'")
+
+        # Generate ID from the name
+        room_id = Room.generate_id_from_name(generated_name)
+
+        # Create the room with the generated name and ID
+        room = Room(coords, name=generated_name, room_id=room_id)
+        paths = {}
 
         # Add connection from the room this was created from
         if from_room is not None and from_direction is not None:
@@ -137,14 +175,40 @@ class WorldGenerator:
 
         print(f"New paths for room {room.id}: {paths}")
 
-        # Generate room description using LLM
+        # Generate room description using LLM with surrounding room context
         path_descriptions = {
             d: desc if desc is not None else "unknown" for d, desc in paths.items()
         }
+
+        # Gather adjacent room information for continuity
+        adjacent_hints = []
+        for direction, aroom in adjacent_rooms.items():
+            if aroom and aroom.description:
+                # Provide room name AND description snippet for better context
+                # Use more of the description to convey biome themes clearly
+                desc_snippet = (
+                    aroom.description[:150] + "..."
+                    if len(aroom.description) > 150
+                    else aroom.description
+                )
+                adjacent_hints.append(
+                    f"{direction.upper()}: '{aroom.name}' - {desc_snippet}"
+                )
+
+        # Format adjacent context string with descriptions
+        if adjacent_hints:
+            adjacent_context = "Adjacent rooms:\n" + "\n".join(adjacent_hints)
+            # Add the same biome shift hint if it was triggered
+            if should_introduce_new_biome:
+                adjacent_context += "\n\nSPECIAL: This room reveals a COMPLETELY NEW discovery - describe a dramatic shift or surprising new element! Think: hidden waterfall, ancient vault, mushroom forest, trapped civilization, etc."
+        else:
+            adjacent_context = "This is the first room in unexplored territory - create something vivid and memorable!"
+
         prompt = PromptTemplates.WORLD_GEN_ROOM_DESCRIPTION.substitute(
             word_count=GameConstants.DEFAULT_DESCRIPTION_WORDS,
             room_name=room.name,
             room_paths=path_descriptions,
+            adjacent_rooms=adjacent_context,
         )
         description = self.dm_generator_module.get_response(prompt)
         room.update_description(description)

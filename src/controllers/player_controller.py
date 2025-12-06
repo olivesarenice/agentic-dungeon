@@ -208,14 +208,20 @@ class AIController(PlayerController):
 
     def _decide_move(self, context: dict) -> str:
         """Use LLM to decide movement direction with backtracking avoidance."""
+        import random
+
         available_directions = context.get("available_directions", [])
         current_room = context.get("current_room")
         player_memory = context.get("player_memory")
 
+        # Shuffle available directions to avoid LLM bias toward first-mentioned directions
+        shuffled_directions = list(available_directions)
+        random.shuffle(shuffled_directions)
+
         # Build context for LLM
         room_info = f"Current room: {current_room.name}\n"
         room_info += f"Description: {current_room.description}\n"
-        room_info += f"Available directions: {', '.join(available_directions)}\n"
+        room_info += f"Available directions: {', '.join(shuffled_directions)}\n"
 
         # Add memory context if available
         if player_memory and hasattr(player_memory, "known_rooms"):

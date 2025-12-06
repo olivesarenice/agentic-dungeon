@@ -38,9 +38,21 @@ def main():
         if not world_name:
             world_name = "Default World"
 
+        # Ask for world theme (free-text description)
+        print("\nDescribe the world theme/setting (optional):")
+        print("Examples:")
+        print("  - Middle-earth style world with kingdoms and castles")
+        print("  - Grimdark fantasy in oppressed township and dark woods")
+        print("  - Underwater coral city with bioluminescent creatures")
+        print("  - Space station with abandoned tech and alien artifacts")
+        world_theme = input("\nWorld theme (or press Enter to skip): ").strip()
+        if not world_theme:
+            world_theme = None
+
         db_world = DBWorld(
             id=world_id,
             name=world_name,
+            theme=world_theme,
             created_at=datetime.now(),
             last_played_at=datetime.now(),
             starting_coords_x=0,
@@ -48,6 +60,8 @@ def main():
         )
         world_repo.add(db_world)
         print(f"Created world: {world_name} (ID: {world_id})")
+        if world_theme:
+            print(f"Theme: {world_theme}")
     else:
         # Show existing worlds
         print("\nExisting worlds:")
@@ -67,9 +81,20 @@ def main():
             if not world_name:
                 world_name = f"World {len(worlds) + 1}"
 
+            # Ask for world theme (free-text description)
+            print("\nDescribe the world theme/setting (optional):")
+            print("Examples:")
+            print("  - Middle-earth style world with kingdoms and castles")
+            print("  - Grimdark fantasy in oppressed township and dark woods")
+            print("  - Underwater coral city with bioluminescent creatures")
+            world_theme = input("\nWorld theme (or press Enter to skip): ").strip()
+            if not world_theme:
+                world_theme = None
+
             db_world = DBWorld(
                 id=world_id,
                 name=world_name,
+                theme=world_theme,
                 created_at=datetime.now(),
                 last_played_at=datetime.now(),
                 starting_coords_x=0,
@@ -77,6 +102,8 @@ def main():
             )
             world_repo.add(db_world)
             print(f"Created world: {world_name}")
+            if world_theme:
+                print(f"Theme: {world_theme}")
         else:
             try:
                 idx = int(choice) - 1
@@ -128,7 +155,21 @@ def main():
                 f"Note: Configured for {n_humans} human players, but only one can play at a time."
             )
         # Create NPCs
-        n_npcs = getattr(GameConstants, "N_NPCS", 3)
+        npc_input = input(
+            "How many NPCs would you like in this world? (press Enter for 3): "
+        ).strip()
+        if npc_input:
+            try:
+                n_npcs = int(npc_input)
+                if n_npcs < 0:
+                    print("Invalid number, using default (3)")
+                    n_npcs = 3
+            except ValueError:
+                print("Invalid input, using default (3)")
+                n_npcs = 3
+        else:
+            n_npcs = 3
+
         for _ in tqdm(range(n_npcs), desc="Generating NPCs"):
             npc_name = fake.user_name() + "_" + str(fake.random_number(digits=3))
             game.create_player(npc_name, PlayerType.NPC)
