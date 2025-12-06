@@ -157,22 +157,19 @@ ${adjacent_rooms}
 
 CRITICAL: Your response must be ONLY the room name. No explanations, no parentheses, no additional text.
 
-Guidelines:
-- Keep it SHORT (2-4 words max)
-- If connected to other rooms, the name can relate to them OR introduce something new
-- Consider natural transitions (e.g., "Moss-Covered Hall" → "Deep Moss Cavern") OR forward progress into new areas
+Requirements:
+- 2-4 words maximum
+- Be creative and unique
+- Evocative and atmospheric
+- Can relate to adjacent rooms OR be completely different
+- You may use fantasy-themed words or concepts like mythical creatures, ancient artifacts, natural phenomena, magical effects, etc.
 
-Good examples:
-- Natural transition: "The Echoing Hall" → "Echo Chamber Depths"
-- New biome: "Stone Corridor" → "Fungal Grotto"
-- Standalone: "Starlit Observatory", "Crumbling Bridge"
+Avoid:
+- Generic names like "Room 5" or "The Corridor"
+- Overly long names (more than 4 words)
+- Explanatory text or parentheses
 
-Bad examples:
-- "Thorlda's Mystical Tower of Ancient Secrets" (TOO LONG)
-- "Room 5" (TOO GENERIC)
-- "The Threshold Passage (Suggests...)" (ADDING EXPLANATIONS - NEVER DO THIS)
-
-Your room name (2-4 words only):"""
+Your room name (2-4 words):"""
     )
 
     WORLD_GEN_ROOM_DESCRIPTION = Template(

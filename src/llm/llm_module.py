@@ -48,11 +48,12 @@ class LLMProvider(ABC):
         self.system_prompt = system_prompt
 
     @abstractmethod
-    def generate(self, prompt: str) -> str:
+    def generate(self, prompt: str, temperature: Optional[float] = None) -> str:
         """Generate a response from the LLM.
 
         Args:
             prompt: The user's prompt.
+            temperature: Optional temperature override (0.0-1.0). If None, uses default.
 
         Returns:
             The text response from the LLM.
@@ -116,10 +117,12 @@ class GeminiProvider(LLMProvider):
             f"(Attempt {retry_state.attempt_number})"
         ),
     )
-    def generate(self, prompt: str) -> str:
+    def generate(self, prompt: str, temperature: Optional[float] = None) -> str:
         try:
+            # Use provided temperature or default to 0.7
+            temp = temperature if temperature is not None else 0.7
             generation_config = genai.types.GenerationConfig(
-                temperature=0.7,
+                temperature=temp,
             )
             response = self.model.generate_content(
                 prompt, generation_config=generation_config
@@ -168,8 +171,10 @@ class OllamaProvider(LLMProvider):
     def get_provider_name(self) -> str:
         return "ollama"
 
-    def generate(self, prompt: str) -> str:
+    def generate(self, prompt: str, temperature: Optional[float] = None) -> str:
         try:
+            # Use provided temperature or default to 0.7
+            temp = temperature if temperature is not None else 0.7
             headers = {"Content-Type": "application/json"}
             data = {
                 "model": self.model_name,
@@ -177,7 +182,7 @@ class OllamaProvider(LLMProvider):
                 "stream": False,
                 "think": False,
                 "options": {
-                    "temperature": 0.7,
+                    "temperature": temp,
                 },
             }
             response = requests.post(
@@ -234,8 +239,11 @@ class BedrockProvider(LLMProvider):
     def get_provider_name(self) -> str:
         return "bedrock"
 
-    def generate(self, prompt: str) -> str:
+    def generate(self, prompt: str, temperature: Optional[float] = None) -> str:
         try:
+            # Use provided temperature or default to 0.7
+            temp = temperature if temperature is not None else 0.7
+
             # Construct the messages for Claude format
             messages = [{"role": "user", "content": prompt}]
 
@@ -243,7 +251,7 @@ class BedrockProvider(LLMProvider):
             request_body = {
                 "anthropic_version": "bedrock-2023-05-31",
                 "max_tokens": 4096,
-                "temperature": 0.7,
+                "temperature": temp,
                 "messages": messages,
                 "system": self.system_prompt,
             }
@@ -316,7 +324,7 @@ class LLMModule:
             else:
                 raise ValueError(f"Unsupported LLM provider: {provider_type}")
 
-    def get_response(self, prompt: str) -> str:
+    def get_response(self, prompt: str, temperature: Optional[float] = None) -> str:
         """
         Gets a response from the LLM based on the user prompt.
 
@@ -324,6 +332,7 @@ class LLMModule:
 
         Args:
             prompt: The user's prompt.
+            temperature: Optional temperature override (0.0-1.0). If None, uses provider default.
 
         Returns:
             The text response from the LLM.
@@ -343,11 +352,13 @@ class LLMModule:
             )
             logger.debug("-" * 80)
             logger.debug(f"USER PROMPT:\n{prompt}")
+            if temperature is not None:
+                logger.debug(f"TEMPERATURE: {temperature}")
             logger.debug("-" * 80)
 
         # Time the LLM request
         start_time = time.perf_counter()
-        response_text = self.provider.generate(prompt)
+        response_text = self.provider.generate(prompt, temperature=temperature)
         end_time = time.perf_counter()
 
         # Calculate duration in milliseconds

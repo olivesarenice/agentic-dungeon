@@ -124,7 +124,10 @@ class WorldGenerator:
         name_prompt = PromptTemplates.WORLD_GEN_ROOM_NAME.substitute(
             adjacent_rooms=adjacent_context
         )
-        generated_name = self.dm_generator_module.get_response(name_prompt).strip()
+        # Use temperature=1.0 for maximum creativity in room names
+        generated_name = self.dm_generator_module.get_response(
+            name_prompt, temperature=1.0
+        ).strip()
         # Remove quotes if the LLM added them
         generated_name = generated_name.strip('"').strip("'")
 
