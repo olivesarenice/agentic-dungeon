@@ -40,15 +40,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Database setup
-DATABASE_URL = "sqlite:///./game.db"
+# Database setup - V3 uses new database
+DATABASE_URL = "sqlite:///./game_v3.db"
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 # Create all database tables if they don't exist
-print("Initializing database...")
+print("Initializing V3 database...")
 Base.metadata.create_all(engine)
-print("✅ Database initialized successfully")
+print("✅ V3 Database initialized successfully")
 
 # Store game managers per world
 game_managers: dict[str, GameManager] = {}
@@ -92,6 +92,7 @@ class CreateWorldRequest(BaseModel):
     name: str
     theme: Optional[str] = None
     art_style: str = "retro_anime"
+    grid_size: int = 3  # V3: 3, 5, or 7
     npc_count: int = 3
 
 
@@ -169,6 +170,32 @@ async def get_world(world_id: str):
         session.close()
 
 
+@app.get("/api/worlds/{world_id}/players")
+async def get_world_players(world_id: str):
+    """Get all players in a specific world."""
+    session = SessionLocal()
+    try:
+        from database.models import DBPlayer
+
+        players = session.query(DBPlayer).filter(DBPlayer.world_id == world_id).all()
+
+        return {
+            "players": [
+                {
+                    "id": player.id,
+                    "name": player.name,
+                    "description": player.description,
+                    "player_type": player.player_type,
+                    "current_room_id": player.current_room_id,
+                    "created_at": player.created_at.isoformat(),
+                }
+                for player in players
+            ]
+        }
+    finally:
+        session.close()
+
+
 @app.post("/api/worlds")
 async def create_world(request: CreateWorldRequest):
     """Create a new world with rooms and NPCs."""
@@ -183,6 +210,9 @@ async def create_world(request: CreateWorldRequest):
         from database.models import DBWorld
         from repositories import WorldRepository
 
+        # V3: Calculate center coordinates for grid
+        center = request.grid_size // 2
+
         # Create world in database
         world_id = str(uuid.uuid4())
         db_world = DBWorld(
@@ -190,10 +220,11 @@ async def create_world(request: CreateWorldRequest):
             name=request.name,
             theme=request.theme,
             art_style=request.art_style,
+            grid_size=request.grid_size,  # V3
             created_at=datetime.now(),
             last_played_at=datetime.now(),
-            starting_coords_x=0,
-            starting_coords_y=0,
+            starting_coords_x=center,  # V3: Start at grid center
+            starting_coords_y=center,
         )
 
         world_repo = WorldRepository(session)
@@ -203,30 +234,54 @@ async def create_world(request: CreateWorldRequest):
         # Otherwise the GameManager's session won't see the theme
         session.commit()
 
-        print(f"Created world: {request.name} (ID: {world_id})")
+        print(f"\n{'='*60}")
+        print(f"Creating V3 World: {request.name}")
+        print(f"  ID: {world_id}")
+        print(
+            f"  Grid Size: {request.grid_size}x{request.grid_size} ({request.grid_size * request.grid_size} rooms)"
+        )
         if request.theme:
-            print(f"Theme: {request.theme}")
-        print(f"Art style: {request.art_style}")
+            print(f"  Theme: {request.theme}")
+        print(f"  Art Style: {request.art_style}")
+        print(f"  NPCs: {request.npc_count}")
+        print(f"{'='*60}\n")
 
-        # Initialize game manager and create world
+        # Initialize game manager and create organic labyrinth
         game_manager = get_or_create_game_manager(world_id)
-        game_manager.create_world()
 
-        print(f"Generated rooms for world {world_id}")
+        # Calculate max_rooms from grid_size (for backwards compatibility)
+        # grid_size 2 = 4 rooms, 3 = 9 rooms, 4 = 16 rooms
+        max_rooms = request.grid_size * request.grid_size
+
+        game_manager.world_generator.create_organic_labyrinth(max_rooms)
+
+        # V3: Place treasures (same number as grid_size for consistency)
+        game_manager.world_generator.place_treasures(request.grid_size, session)
+
+        # Update world with treasure count
+        db_world.total_treasures = request.grid_size
+        session.commit()
 
         # Create NPCs
         if request.npc_count > 0:
-            print(f"Creating {request.npc_count} NPCs...")
+            print(f"👥 Spawning {request.npc_count} NPCs...")
             for i in range(request.npc_count):
                 npc_name = fake.user_name() + "_" + str(fake.random_number(digits=3))
                 game_manager.create_player(npc_name, PlayerType.NPC)
-                print(f"  Created NPC: {npc_name}")
+                print(f"   ✓ {npc_name}")
+            print()
+
+        print(f"{'='*60}")
+        print(f"✅ World '{request.name}' ready to explore!")
+        print(f"{'='*60}\n")
 
         return {
             "id": world_id,
             "name": request.name,
             "theme": request.theme,
             "art_style": request.art_style,
+            "grid_size": request.grid_size,
+            "total_treasures": request.grid_size,
             "created_at": db_world.created_at.isoformat(),
             "npc_count": request.npc_count,
         }
@@ -407,6 +462,46 @@ async def get_game_state(player_id: str):
 
         print(f"[STATE] Room {current_room.id} has paths: {available_exits}")
 
+        # V3: Get treasure progress and inventory
+        from database.models import DBItem, DBWorld
+
+        world = session.query(DBWorld).filter_by(id=db_player.world_id).first()
+
+        total_treasures = world.total_treasures if world else 0
+        collected_treasures = (
+            session.query(DBItem)
+            .filter_by(
+                world_id=db_player.world_id,
+                item_type="TREASURE",
+                is_collected=True,
+                collected_by_player_id=player_id,
+            )
+            .count()
+        )
+
+        # Get player's inventory
+        inventory_items = (
+            session.query(DBItem)
+            .filter_by(
+                collected_by_player_id=player_id,
+                is_collected=True,
+            )
+            .all()
+        )
+
+        inventory = [
+            {
+                "name": item.name,
+                "description": item.description,
+                "collected_at": (
+                    item.collected_at.isoformat() if item.collected_at else None
+                ),
+            }
+            for item in inventory_items
+        ]
+
+        has_won = (collected_treasures == total_treasures) and total_treasures > 0
+
         return {
             "player": {
                 "id": db_player.id,
@@ -424,6 +519,12 @@ async def get_game_state(player_id: str):
             "recent_events": events_list,
             "known_rooms": known_rooms,
             "available_exits": available_exits,
+            "objective": {
+                "total_treasures": total_treasures,
+                "collected_treasures": collected_treasures,
+                "has_won": has_won,
+            },
+            "inventory": inventory,
         }
 
     finally:
@@ -537,36 +638,41 @@ async def handle_move_action(
             game_manager.session.commit()
             print(f"[MOVE] Successfully moved to room {player.room_id}")
 
-            # Generate voiceover narration for the move
-            try:
-                # Get rooms for context
-                to_room = game_manager.world_generator.get_room(player.room_id)
+            # Generate voiceover narration for the move (only if TTS enabled)
+            from config.constants import TTSConstants
 
-                # For first visit, just use room description
-                # For returning, generate a short narration
-                if not was_previously_visited:
-                    narration_text = to_room.description
-                    print(f"[NARRATION] First visit - using room description")
-                else:
-                    from_room = game_manager.world_generator.get_room(current_room.id)
-                    narration_text = narration_service.generate_move_narration(
-                        player, from_room, to_room, direction, False
+            if TTSConstants.ENABLED:
+                try:
+                    # Get rooms for context
+                    to_room = game_manager.world_generator.get_room(player.room_id)
+
+                    # For first visit, just use room description
+                    # For returning, generate a short narration
+                    if not was_previously_visited:
+                        narration_text = to_room.description
+                        print(f"[NARRATION] First visit - using room description")
+                    else:
+                        from_room = game_manager.world_generator.get_room(
+                            current_room.id
+                        )
+                        narration_text = narration_service.generate_move_narration(
+                            player, from_room, to_room, direction, False
+                        )
+                        print(f"[NARRATION] Returning - generated narration")
+
+                    # Generate and save audio narration
+                    session = SessionLocal()
+                    await generate_and_save_narration(
+                        player_id, player.room_id, narration_text, "MOVE", session
                     )
-                    print(f"[NARRATION] Returning - generated narration")
+                    session.close()
 
-                # Generate and save audio narration
-                session = SessionLocal()
-                await generate_and_save_narration(
-                    player_id, player.room_id, narration_text, "MOVE", session
-                )
-                session.close()
+                    print(f"[NARRATION] {narration_text}")
+                except Exception as e:
+                    print(f"[NARRATION] Failed: {e}")
+                    import traceback
 
-                print(f"[NARRATION] {narration_text}")
-            except Exception as e:
-                print(f"[NARRATION] Failed: {e}")
-                import traceback
-
-                traceback.print_exc()
+                    traceback.print_exc()
 
             return {
                 "success": True,
@@ -623,33 +729,36 @@ async def handle_talk_action(
         player.controller = original_controller
 
         if success:
-            # Generate voiceover narration for the talk action
-            try:
+            # Generate voiceover narration for the talk action (only if TTS enabled)
+            from config.constants import TTSConstants
 
-                # Get current room
-                current_room = game_manager.world_generator.get_room(player.room_id)
+            if TTSConstants.ENABLED:
+                try:
 
-                # Get NPCs present
-                npcs_present = [
-                    p.name
-                    for pid, p in players_map.items()
-                    if p.room_id == player.room_id and pid != player_id
-                ]
+                    # Get current room
+                    current_room = game_manager.world_generator.get_room(player.room_id)
 
-                narration_text = narration_service.generate_action_narration(
-                    player, current_room, "TALK", message, npcs_present
-                )
+                    # Get NPCs present
+                    npcs_present = [
+                        p.name
+                        for pid, p in players_map.items()
+                        if p.room_id == player.room_id and pid != player_id
+                    ]
 
-                # Generate and save audio narration
-                session = SessionLocal()
-                await generate_and_save_narration(
-                    player_id, player.room_id, narration_text, "ACTION", session
-                )
-                session.close()
+                    narration_text = narration_service.generate_action_narration(
+                        player, current_room, "TALK", message, npcs_present
+                    )
 
-                print(f"[NARRATION] {narration_text}")
-            except Exception as e:
-                print(f"[NARRATION] Failed: {e}")
+                    # Generate and save audio narration
+                    session = SessionLocal()
+                    await generate_and_save_narration(
+                        player_id, player.room_id, narration_text, "ACTION", session
+                    )
+                    session.close()
+
+                    print(f"[NARRATION] {narration_text}")
+                except Exception as e:
+                    print(f"[NARRATION] Failed: {e}")
 
             return {
                 "success": True,
@@ -669,7 +778,7 @@ async def handle_talk_action(
 async def handle_interact_action(
     game_manager: GameManager, player_id: str, description: Optional[str]
 ):
-    """Handle player interaction."""
+    """Handle player interaction - V3: checks for item collection first."""
     if not description:
         return {
             "success": False,
@@ -682,33 +791,81 @@ async def handle_interact_action(
         if not player:
             return {"success": False, "message": "Player not found"}
 
-        # Get current room BEFORE action
+        # Get current room
         current_room = game_manager.world_generator.get_room(player.room_id)
-        room_description_before = current_room.description
 
-        # STEP 1: Narrate the ACTION itself (what player is about to do)
-        try:
-            players_map = game_manager.get_players()
-            npcs_present = [
-                p.name
-                for pid, p in players_map.items()
-                if p.room_id == player.room_id and pid != player_id
-            ]
+        # V3: CHECK FOR ITEM COLLECTION FIRST
+        session = SessionLocal()
+        collected_item = await check_and_collect_item(
+            session, player_id, current_room.id, description
+        )
 
-            action_narration = narration_service.generate_action_narration(
-                player, current_room, "INTERACT", description, npcs_present
-            )
+        if collected_item:
+            # Item found and collected!
+            narration = f"You {description} and discover the {collected_item['name']}! ({collected_item['collected']}/{collected_item['total']} treasures found)"
 
-            # Generate and save action narration
-            session = SessionLocal()
             await generate_and_save_narration(
-                player_id, player.room_id, action_narration, "ACTION", session
+                player_id, current_room.id, narration, "ITEM_COLLECTED", session
             )
+
+            # Check win condition
+            if collected_item["has_won"]:
+                from database.models import DBWorld
+
+                world = (
+                    session.query(DBWorld).filter_by(id=game_manager.world_id).first()
+                )
+                world.is_complete = True
+                world.completed_at = datetime.now()
+                session.commit()
+
+                win_narration = "🎉 You've found all the treasures! The dungeon's secrets are now yours!"
+                await generate_and_save_narration(
+                    player_id, current_room.id, win_narration, "WIN", session
+                )
+
             session.close()
 
-            print(f"[NARRATION] Action: {action_narration}")
-        except Exception as e:
-            print(f"[NARRATION] Failed to narrate action: {e}")
+            return {
+                "success": True,
+                "message": f"🎉 You found the {collected_item['name']}!",
+                "item_collected": True,
+                "item_name": collected_item["name"],
+                "progress": f"{collected_item['collected']}/{collected_item['total']}",
+                "has_won": collected_item["has_won"],
+            }
+
+        session.close()
+
+        # NO ITEM - Continue with normal room interaction
+        room_description_before = current_room.description
+
+        # STEP 1: Narrate the ACTION itself (only if TTS enabled)
+        from config.constants import TTSConstants
+
+        if TTSConstants.ENABLED:
+            try:
+                players_map = game_manager.get_players()
+                npcs_present = [
+                    p.name
+                    for pid, p in players_map.items()
+                    if p.room_id == player.room_id and pid != player_id
+                ]
+
+                action_narration = narration_service.generate_action_narration(
+                    player, current_room, "INTERACT", description, npcs_present
+                )
+
+                # Generate and save action narration
+                session = SessionLocal()
+                await generate_and_save_narration(
+                    player_id, player.room_id, action_narration, "ACTION", session
+                )
+                session.close()
+
+                print(f"[NARRATION] Action: {action_narration}")
+            except Exception as e:
+                print(f"[NARRATION] Failed to narrate action: {e}")
 
         # STEP 2: Execute the action
         # Override the controller's action prompt with the user's description
@@ -731,28 +888,31 @@ async def handle_interact_action(
         player.controller = original_controller
 
         if success:
-            # STEP 3: Check if room changed and narrate the RESULT
-            try:
-                current_room = game_manager.world_generator.get_room(player.room_id)
-                room_description_after = current_room.description
+            # STEP 3: Check if room changed and narrate the RESULT (only if TTS enabled)
+            if TTSConstants.ENABLED:
+                try:
+                    current_room = game_manager.world_generator.get_room(player.room_id)
+                    room_description_after = current_room.description
 
-                # If room description changed, narrate the change
-                if room_description_before != room_description_after:
-                    change_narration = f"The room shifts in response to your action."
+                    # If room description changed, narrate the change
+                    if room_description_before != room_description_after:
+                        change_narration = (
+                            f"The room shifts in response to your action."
+                        )
 
-                    session = SessionLocal()
-                    await generate_and_save_narration(
-                        player_id,
-                        player.room_id,
-                        change_narration,
-                        "ROOM_CHANGE",
-                        session,
-                    )
-                    session.close()
+                        session = SessionLocal()
+                        await generate_and_save_narration(
+                            player_id,
+                            player.room_id,
+                            change_narration,
+                            "ROOM_CHANGE",
+                            session,
+                        )
+                        session.close()
 
-                    print(f"[NARRATION] Room change: {change_narration}")
-            except Exception as e:
-                print(f"[NARRATION] Failed to narrate room change: {e}")
+                        print(f"[NARRATION] Room change: {change_narration}")
+                except Exception as e:
+                    print(f"[NARRATION] Failed to narrate room change: {e}")
 
             return {
                 "success": True,
@@ -791,34 +951,37 @@ async def handle_observe_action(game_manager: GameManager, player_id: str):
         # Persist updated player state
         game_manager.player_repo.update(player)
 
-        # Generate voiceover narration for the observe action
-        try:
+        # Generate voiceover narration for the observe action (only if TTS enabled)
+        from config.constants import TTSConstants
 
-            # Get NPCs present
-            npcs_present = [
-                p.name
-                for pid, p in players_map.items()
-                if p.room_id == player.room_id and pid != player_id
-            ]
+        if TTSConstants.ENABLED:
+            try:
 
-            narration_text = narration_service.generate_action_narration(
-                player,
-                current_room,
-                "OBSERVE",
-                "carefully observing surroundings",
-                npcs_present,
-            )
+                # Get NPCs present
+                npcs_present = [
+                    p.name
+                    for pid, p in players_map.items()
+                    if p.room_id == player.room_id and pid != player_id
+                ]
 
-            # Generate and save audio narration
-            session = SessionLocal()
-            await generate_and_save_narration(
-                player_id, player.room_id, narration_text, "ACTION", session
-            )
-            session.close()
+                narration_text = narration_service.generate_action_narration(
+                    player,
+                    current_room,
+                    "OBSERVE",
+                    "carefully observing surroundings",
+                    npcs_present,
+                )
 
-            print(f"[NARRATION] {narration_text}")
-        except Exception as e:
-            print(f"[NARRATION] Failed: {e}")
+                # Generate and save audio narration
+                session = SessionLocal()
+                await generate_and_save_narration(
+                    player_id, player.room_id, narration_text, "ACTION", session
+                )
+                session.close()
+
+                print(f"[NARRATION] {narration_text}")
+            except Exception as e:
+                print(f"[NARRATION] Failed: {e}")
 
         return {
             "success": True,
@@ -828,6 +991,87 @@ async def handle_observe_action(game_manager: GameManager, player_id: str):
     except Exception as e:
         print(f"Error in handle_observe_action: {e}")
         return {"success": False, "message": f"Error: {str(e)}"}
+
+
+# ============================================================================
+# V3: Item Collection Helper
+# ============================================================================
+
+
+async def check_and_collect_item(
+    session, player_id: str, room_id: str, interaction_text: str
+) -> Optional[dict]:
+    """
+    V3: Check if interaction matches an item hint and collect it.
+
+    Args:
+        session: Database session
+        player_id: Player ID
+        room_id: Current room ID
+        interaction_text: What player typed (e.g., "open the wooden chest")
+
+    Returns:
+        Dict with item info if collected, None otherwise
+    """
+    from database.models import DBItem, DBPlayer, DBWorld
+
+    # Get uncollected items in this room
+    items = (
+        session.query(DBItem)
+        .filter(DBItem.room_id == room_id, DBItem.is_collected == False)
+        .all()
+    )
+
+    if not items:
+        return None
+
+    # Fuzzy match: check if interaction contains item hint
+    interaction_lower = interaction_text.lower()
+
+    for item in items:
+        hint_lower = item.interaction_hint.lower()
+
+        # Match if interaction contains the hint or vice versa
+        # e.g., "open the wooden chest" matches hint "wooden chest"
+        if hint_lower in interaction_lower or interaction_lower in hint_lower:
+            # COLLECT THE ITEM!
+            item.is_collected = True
+            item.collected_by_player_id = player_id
+            item.collected_at = datetime.now()
+            session.commit()
+
+            print(f"[ITEM] Player {player_id} collected '{item.name}'")
+
+            # Get progress
+            player = session.query(DBPlayer).filter_by(id=player_id).first()
+            world = session.query(DBWorld).filter_by(id=player.world_id).first()
+
+            total = world.total_treasures
+            collected = (
+                session.query(DBItem)
+                .filter_by(
+                    world_id=player.world_id,
+                    item_type="TREASURE",
+                    is_collected=True,
+                )
+                .count()
+            )
+
+            has_won = collected == total
+
+            print(f"[ITEM] Progress: {collected}/{total} treasures")
+            if has_won:
+                print(f"[ITEM] 🎉 Player {player.name} has won!")
+
+            return {
+                "name": item.name,
+                "description": item.description,
+                "collected": collected,
+                "total": total,
+                "has_won": has_won,
+            }
+
+    return None
 
 
 # ============================================================================
@@ -898,30 +1142,38 @@ async def generate_and_save_narration(
     Generate TTS audio for narration and save to database.
     Returns the audio filepath.
     """
+    from config.constants import TTSConstants
     from database.models import DBNarration
-    from llm.tts_module import create_tts_module
 
-    # Create narrations directory if it doesn't exist
-    narrations_dir = Path("generated_narrations")
-    narrations_dir.mkdir(exist_ok=True)
+    audio_filepath = None
 
-    # Generate unique filename
-    import time
+    # Only generate TTS if enabled
+    if TTSConstants.ENABLED:
+        from llm.tts_module import create_tts_module
 
-    timestamp = int(time.time() * 1000)
-    audio_filename = f"narration_{player_id}_{timestamp}.mp3"
-    audio_filepath = narrations_dir / audio_filename
+        # Create narrations directory if it doesn't exist
+        narrations_dir = Path(TTSConstants.OUTPUT_DIR)
+        narrations_dir.mkdir(exist_ok=True)
 
-    # Generate audio using TTS
-    try:
-        tts = create_tts_module()
-        tts.save_to_file(narration_text, str(audio_filepath))
-        print(f"[NARRATION] Generated audio: {audio_filepath}")
-    except Exception as e:
-        print(f"[NARRATION] TTS generation failed: {e}")
-        audio_filepath = None
+        # Generate unique filename
+        import time
 
-    # Save narration to database
+        timestamp = int(time.time() * 1000)
+        audio_filename = f"narration_{player_id}_{timestamp}.mp3"
+        audio_filepath = narrations_dir / audio_filename
+
+        # Generate audio using TTS
+        try:
+            tts = create_tts_module()
+            tts.save_to_file(narration_text, str(audio_filepath))
+            print(f"[NARRATION] Generated audio: {audio_filepath}")
+        except Exception as e:
+            print(f"[NARRATION] TTS generation failed: {e}")
+            audio_filepath = None
+    else:
+        print(f"[NARRATION] TTS disabled, skipping audio generation")
+
+    # Save narration to database (with or without audio)
     db_narration = DBNarration(
         player_id=player_id,
         room_id=room_id,

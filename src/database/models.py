@@ -1,5 +1,5 @@
 """
-SQLAlchemy database models for persistence.
+SQLAlchemy database models for V3.
 """
 
 from datetime import datetime
@@ -27,17 +27,27 @@ class DBWorld(Base):
 
     id = Column(String, primary_key=True)
     name = Column(String, nullable=False)
-    theme = Column(
-        String, nullable=True
-    )  # Free-text world theme/description (e.g., "middle-earth with castles")
-    art_style = Column(
-        String, nullable=True, default="retro_anime"
-    )  # Art style for image generation (e.g., "retro_anime", "pixel_art", "photorealistic", "high_fantasy")
+    theme = Column(String, nullable=True)
+    art_style = Column(String, nullable=True, default="retro_anime")
+
+    # V3: Grid-based generation
+    grid_size = Column(Integer, nullable=False, default=3)  # 3, 5, or 7
+    total_treasures = Column(Integer, default=0)
+    generation_status = Column(
+        String, default="PENDING"
+    )  # PENDING, GENERATING, COMPLETE, FAILED
+
+    # Completion tracking
+    is_complete = Column(Boolean, default=False)
+    completed_at = Column(DateTime)
+
+    # Timestamps
     created_at = Column(DateTime, nullable=False, default=datetime.now)
     last_played_at = Column(DateTime, nullable=False, default=datetime.now)
+
+    # Starting position
     starting_coords_x = Column(Integer, nullable=False, default=0)
     starting_coords_y = Column(Integer, nullable=False, default=0)
-    settings_json = Column(Text)
 
     # Relationships
     rooms = relationship("DBRoom", back_populates="world", cascade="all, delete-orphan")
@@ -47,6 +57,7 @@ class DBWorld(Base):
     events = relationship(
         "DBGameEvent", back_populates="world", cascade="all, delete-orphan"
     )
+    items = relationship("DBItem", back_populates="world", cascade="all, delete-orphan")
 
 
 class DBRoom(Base):
@@ -62,11 +73,16 @@ class DBRoom(Base):
     coords_y = Column(Integer, nullable=False)
     description = Column(Text, nullable=False)
     created_at = Column(DateTime, nullable=False, default=datetime.now)
-    image_filepath = Column(String, nullable=True)  # Path to generated scene image
+
+    # V3: Room metadata
+    image_filepath = Column(String, nullable=True)
+    has_treasure = Column(Boolean, default=False)
+    is_starting_room = Column(Boolean, default=False)
 
     # Relationships
     world = relationship("DBWorld", back_populates="rooms")
     players = relationship("DBPlayer", back_populates="current_room")
+    items = relationship("DBItem", back_populates="room", cascade="all, delete-orphan")
     paths = relationship(
         "DBRoomPath",
         foreign_keys="DBRoomPath.room_id",
@@ -214,6 +230,70 @@ class DBPlayerKnownRoom(Base):
     # Relationships
     player = relationship("DBPlayer", back_populates="known_rooms")
     room = relationship("DBRoom")
+
+
+class DBItem(Base):
+    """V3: Items that can be collected in the game."""
+
+    __tablename__ = "items"
+
+    id = Column(String, primary_key=True)
+    world_id = Column(String, ForeignKey("worlds.id"), nullable=False)
+    room_id = Column(String, ForeignKey("rooms.id"), nullable=False)
+
+    # Item details
+    name = Column(String, nullable=False)
+    description = Column(Text, nullable=False)
+    item_type = Column(String, nullable=False, default="TREASURE")
+    interaction_hint = Column(
+        String, nullable=False
+    )  # What player should INTERACT with
+
+    # Collection state
+    is_collected = Column(Boolean, default=False)
+    collected_by_player_id = Column(String, ForeignKey("players.id"))
+    collected_at = Column(DateTime)
+    created_at = Column(DateTime, default=datetime.now)
+
+    # Relationships
+    world = relationship("DBWorld", back_populates="items")
+    room = relationship("DBRoom", back_populates="items")
+    collected_by = relationship("DBPlayer", foreign_keys=[collected_by_player_id])
+
+
+class DBWorldGenerationTask(Base):
+    """V3: Track async world generation progress."""
+
+    __tablename__ = "world_generation_tasks"
+
+    world_id = Column(String, ForeignKey("worlds.id"), primary_key=True)
+    status = Column(String, nullable=False)  # GENERATING, COMPLETE, FAILED
+    progress_percent = Column(Integer, default=0)
+    current_step = Column(String)
+    total_rooms = Column(Integer, nullable=False)
+    generated_rooms = Column(Integer, default=0)
+    error_message = Column(Text)
+    started_at = Column(DateTime, default=datetime.now)
+    completed_at = Column(DateTime)
+
+    # Relationship
+    world = relationship("DBWorld")
+
+
+class DBUserSession(Base):
+    """V3: Track user sessions via cookies."""
+
+    __tablename__ = "user_sessions"
+
+    session_id = Column(String, primary_key=True)
+    current_world_id = Column(String, ForeignKey("worlds.id"))
+    current_player_id = Column(String, ForeignKey("players.id"))
+    created_at = Column(DateTime, default=datetime.now)
+    last_active_at = Column(DateTime, default=datetime.now)
+
+    # Relationships
+    world = relationship("DBWorld")
+    player = relationship("DBPlayer")
 
 
 class DBNarration(Base):

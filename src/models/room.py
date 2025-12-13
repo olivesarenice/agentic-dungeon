@@ -29,6 +29,11 @@ class Room:
         self.players_inside: set[str] = set()  # {player_id}
         self.description = description
         self.image_filepath: str | None = None  # Path to generated scene image
+
+        # V3: Treasure hunt attributes
+        self.has_treasure: bool = False
+        self.is_starting_room: bool = False
+
         # Note: Room creation message removed - it was printing on every DB load
 
     @staticmethod

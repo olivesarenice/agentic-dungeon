@@ -91,14 +91,23 @@ class GameManager:
             print(f"Player with name {player_name} already exists.")
             return None
 
-        # Get available room IDs
+        # V3: Get the designated starting room (not random)
         room_ids = self.world_generator.get_all_room_ids()
         if not room_ids:
             raise ValueError("Cannot create player: No rooms exist in the world")
 
-        # Random starting room
-        starting_room_id = random.choice(room_ids)
-        starting_room = self.world_generator.get_room(starting_room_id)
+        # Find the starting room (marked as is_starting_room)
+        starting_room = None
+        for room_id in room_ids:
+            room = self.world_generator.get_room(room_id)
+            if room and room.is_starting_room:
+                starting_room = room
+                break
+
+        # Fallback to random if no starting room marked (backwards compatibility)
+        if not starting_room:
+            starting_room_id = random.choice(room_ids)
+            starting_room = self.world_generator.get_room(starting_room_id)
 
         if not starting_room:
             raise ValueError(f"Starting room {starting_room_id} not found")
@@ -135,7 +144,13 @@ class GameManager:
         # Update room occupancy (in memory only for now)
         starting_room.players_inside.add(player.id)
 
+        # V3: Automatically observe the starting room (for frontend display)
+        # This ensures the room description is in player's memory immediately
+        player.observe(starting_room, players_map)
+        self.player_repo.update(player)  # Save updated memory
+
         print(f"Player {player_name} created with ID {player.id}.")
+        print(f"Player automatically observed starting room")
         return player
 
     def run(self) -> None:

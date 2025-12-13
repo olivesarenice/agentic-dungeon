@@ -222,6 +222,8 @@ Updated description: {room_description}
 
 {player_info}
 
+PERSPECTIVE: First-person POV from the center of the room, looking out at the scene. The viewer is standing in the middle of the room with a wide field of view capturing the entire space.
+
 IMPORTANT: Use the reference image provided to maintain visual consistency. Keep the same overall composition, lighting, and architectural elements, but update the scene to reflect the new description. The room should feel like the same location, just with modifications based on the updated description."""
         else:
             base_prompt = f"""You are an artist for a D&D game.
@@ -233,6 +235,8 @@ Room: {room_name}
 Room description: {room_description}
 
 {player_info}
+
+PERSPECTIVE: First-person POV from the center of the room, looking out at the scene. The viewer is standing in the middle of the room with a wide field of view capturing the entire space. Maximum scene visibility.
 
 Create a cinematic, atmospheric scene that captures the essence of this room."""
 

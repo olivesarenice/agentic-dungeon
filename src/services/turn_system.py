@@ -125,19 +125,24 @@ class TurnSystem:
 
         print(f"Player {player.name} is in room {current_room.name}")
 
-        # Calculate next coordinates
-        next_coords = self.world_generator._translate(current_room.coords, direction)
+        # V3: Use the path that was set up during world generation
+        # The paths dictionary maps direction -> room_id
+        if direction not in current_room.paths:
+            print(f"ERROR: No path in direction {direction}")
+            return False
 
-        # Check if room exists, create if not
-        next_room = self.world_generator.get_room_at_coords(next_coords)
+        next_room_id = current_room.paths[direction]
+        if not next_room_id:
+            print(f"ERROR: Path {direction} exists but has no room_id")
+            return False
+
+        # Get the room by its ID (not by calculating coordinates)
+        next_room = self.world_generator.get_room(next_room_id)
         if not next_room:
-            # Create new room
-            from_direction = GameConfigs._moves[direction].pole
-            next_room = self.world_generator.create_room(
-                next_coords, current_room, from_direction
-            )
-        else:
-            print(f"Moving to existing room {next_room.name}")
+            print(f"ERROR: Room {next_room_id} doesn't exist in database")
+            return False
+
+        print(f"Moving to existing room {next_room.name} at {next_room.coords}")
 
         # Get witnesses BEFORE player moves (from current player locations)
         witnesses_before = [

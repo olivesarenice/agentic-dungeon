@@ -31,6 +31,7 @@ CONVERSION RULES:
    - Materials: "with visible grain texture", "sharp distinct reflections", "visible brushstrokes"
    - Lighting: "with visible rays", "with defined edges", "casting long sharp shadows"
 5. Keep it as ONE continuous paragraph
+6. Emphasize that it needs to render a perspective inside a physical ROOM.
 
 INPUT TO CONVERT:
 Art Style: ${art_style}

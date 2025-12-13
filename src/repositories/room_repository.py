@@ -80,14 +80,15 @@ class RoomRepository:
         db_room = self._to_db(room)
         self.session.add(db_room)
 
-        # Add paths
+        # Add paths - only save actual connections (not None placeholders)
         for direction, connected_room_id in room.paths.items():
-            db_path = DBRoomPath(
-                room_id=room.id,
-                direction=direction,
-                connected_room_id=connected_room_id,
-            )
-            self.session.add(db_path)
+            if connected_room_id is not None:  # Skip None values
+                db_path = DBRoomPath(
+                    room_id=room.id,
+                    direction=direction,
+                    connected_room_id=connected_room_id,
+                )
+                self.session.add(db_path)
 
         self.session.commit()
 
@@ -111,15 +112,32 @@ class RoomRepository:
             db_room.coords_y = room.coords[1]
             db_room.image_filepath = room.image_filepath
 
-            # Update paths - delete old, add new
-            self.session.query(DBRoomPath).filter_by(room_id=room.id).delete()
+            # V3: Update treasure hunt attributes
+            db_room.has_treasure = room.has_treasure
+            db_room.is_starting_room = room.is_starting_room
+
+            # V3: Update paths - for grid generation, we only ADD paths incrementally
+            # Check which paths need to be added
+            existing_paths = {
+                path.direction: path.connected_room_id
+                for path in self.session.query(DBRoomPath)
+                .filter_by(room_id=room.id)
+                .all()
+            }
+
             for direction, connected_room_id in room.paths.items():
-                db_path = DBRoomPath(
-                    room_id=room.id,
-                    direction=direction,
-                    connected_room_id=connected_room_id,
-                )
-                self.session.add(db_path)
+                if connected_room_id is not None:  # Skip None values
+                    if direction not in existing_paths:
+                        # Add new path
+                        db_path = DBRoomPath(
+                            room_id=room.id,
+                            direction=direction,
+                            connected_room_id=connected_room_id,
+                        )
+                        self.session.add(db_path)
+                        print(
+                            f"  [REPO] Adding new path: {room.id} → {direction} → {connected_room_id}"
+                        )
 
             self.session.commit()
 
@@ -172,6 +190,10 @@ class RoomRepository:
         room.description = db_room.description
         room.image_filepath = db_room.image_filepath
 
+        # V3: Treasure hunt attributes
+        room.has_treasure = db_room.has_treasure
+        room.is_starting_room = db_room.is_starting_room
+
         # Convert paths
         room.paths = {path.direction: path.connected_room_id for path in db_room.paths}
 
@@ -198,5 +220,7 @@ class RoomRepository:
             coords_y=room.coords[1],
             description=room.description,
             image_filepath=room.image_filepath,
+            has_treasure=room.has_treasure,
+            is_starting_room=room.is_starting_room,
             created_at=datetime.now(),
         )

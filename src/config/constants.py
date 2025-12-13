@@ -81,3 +81,13 @@ class ImageGenerationConstants:
 
     # Output directory for generated images
     OUTPUT_DIR = "generated_images"
+
+
+class TTSConstants:
+    """Text-to-Speech (TTS) generation constants."""
+
+    # Enable/disable TTS generation (ElevenLabs)
+    ENABLED = False  # Set to True to enable voice narration
+
+    # Output directory for generated audio files
+    OUTPUT_DIR = "generated_narrations"
