@@ -50,12 +50,17 @@ class ImageGenerationConstants:
     # Enable/disable image generation
     ENABLED = True
 
+    # Enable LLM-based prompt optimization for Flash models
+    # When True, uses a fast LLM to convert structured prompts to dense narrative format
+    # When False, uses traditional structured prompts for all models
+    USE_PROMPT_OPTIMIZATION = True
+
     # Art style presets for room scenes
     ART_STYLES = {
         "retro_anime": """Retro 90s anime style screenshot. Hand-painted background textures with visible brushstrokes, distinct high-contrast white highlights, VHS film grain effect, slight color bleeding, muted color palette with occasional vibrant accents. The style should evoke nostalgia for classic anime like Cowboy Bebop and Samurai Champloo. 4:3 aspect ratio aesthetic.""",
         "pixel_art": """16-bit pixel art scene that looks like a screenshot from a 1990s console RPG. Use a limited color palette (256 colors max), visible square pixel grid structure, dithering technique for shadows and gradients, clean pixel edges without anti-aliasing. The scene should have the charm of classic SNES/Genesis era games. 4:3 aspect ratio aesthetic.""",
         "photorealistic": """Cinematic photorealistic still with film camera aesthetics. 35mm lens equivalent, f/2.8 aperture for shallow depth of field. Dramatic three-point lighting: harsh key light creating strong shadows, soft fill light to reduce contrast, subtle rim/back light for depth. Include environmental details like atmospheric haze, light rays, floating dust particles. Teal and orange color grade, slightly desaturated for cinematic tension. 4K resolution quality, 2.39:1 cinematic framing.""",
-        "high_fantasy": """High Fantasy Traditional Illustration combining watercolor fluidity with oil painting richness. This must look like a physical painting by a master artist, not a digital render. Use traditional media illustration techniques: visible brushwork, pigment granulation, watercolor washes and bleeds on textured paper, combined with oil paint's opacity and rich pigment density. Frame as a portrait composition with the subject central and dominating. Extremely detailed with ornate elements: armor etched with runes and filigree, ancient gnarled roots with luminescent moss, richly embroidered clothing. Rich, deep, saturated color palette like high-quality oil pigments. Soft diffused lighting giving a luminous painted quality. The final result should feel like a full-page plate from an expensive limited-edition fantasy tome.""",
+        "high_fantasy": """High Fantasy Traditional Illustration combining watercolor fluidity with oil painting richness. This must look like a physical painting by a master artist, not a digital render. Use traditional media illustration techniques: visible brushwork, pigment granulation, watercolor washes and bleeds on textured paper, combined with oil paint's opacity and rich pigment density. Soft diffused lighting giving a luminous painted quality.""",
     }
 
     # Current selected style (change this to switch styles)

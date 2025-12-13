@@ -124,7 +124,12 @@ class GameManager:
 
         print(f"Created player {player_name}, description: {player.description}")
 
-        # Save player to database
+        # Make player observe their starting room (adds to known_rooms)
+        players_map = {player.id: player}
+        player.observe(starting_room, players_map)
+        print(f"Player {player_name} observed starting room: {starting_room.name}")
+
+        # Save player to database (includes known_rooms now)
         self.player_repo.add(player)
 
         # Update room occupancy (in memory only for now)

@@ -7,7 +7,7 @@ from uuid import uuid4
 
 from config.constants import GameConstants
 from config.enums import PlayerType
-from llm import LLMModule, create_llm_module
+from llm import LLMModule, create_fast_llm, create_llm_module
 
 from .events import GameEvent
 from .memory import Memory, PlayerEntry, RoomEntry
@@ -33,6 +33,7 @@ class Player:
         player_type: PlayerType = PlayerType.HUMAN,
         llm_module: Optional[LLMModule] = None,
         personality: Optional[NPCPersonality] = None,
+        description: Optional[str] = None,
     ):
         """
         Initialize a player.
@@ -44,6 +45,7 @@ class Player:
             player_type: Type of player (HUMAN or NPC)
             llm_module: Optional LLM module for testing
             personality: Optional NPC personality (auto-generated if NPC and not provided)
+            description: Optional existing description (skips LLM generation if provided)
         """
         if not name:
             raise ValueError("Player name cannot be empty")
@@ -71,9 +73,15 @@ class Player:
             self.DEFAULT_LLM_SYSTEM_PROMPT
         )
 
-        self.description: str = self.llm_module.get_response(
-            f"Provide a {GameConstants.DEFAULT_DESCRIPTION_WORDS}-word brief description of your character named {self.name}."
-        )
+        # Use provided description or generate new one
+        if description:
+            self.description: str = description
+            print(f"[PLAYER] Loaded existing description for {self.name}")
+        else:
+            self.description: str = self.llm_module.get_response(
+                f"Provide a {GameConstants.DEFAULT_DESCRIPTION_WORDS}-word brief description of your character named {self.name}."
+            )
+            print(f"[PLAYER] Generated new description for {self.name}")
 
         # Update the LLM module with self-description
         self.update_llm_module()
@@ -176,7 +184,8 @@ class Player:
         self.synthesize_room_memory(event.room_id)
 
     def synthesize_player_memory(self, player_name: str):
-        """Update mental description of another player based on recent interactions."""
+        """Update mental description of another player based on recent interactions.
+        Uses FAST model for memory summarization."""
         from llm import PromptBuilder
 
         recent_interaction_event = (
@@ -215,13 +224,18 @@ class Player:
             interaction_content=interaction_content,
         )
 
-        new_description = self.llm_module.get_response(synthesize_prompt)
+        # Use FAST model for memory summarization (simple update task)
+        fast_llm = create_fast_llm(
+            "You are a memory assistant that updates character descriptions based on new observations."
+        )
+        new_description = fast_llm.get_response(synthesize_prompt)
         self.memory.known_players[player_name].update_description(new_description)
         print(f"Player {self.name} updated memory of player {player_name}.")
         print(f"New description: {new_description}")
 
     def synthesize_room_memory(self, room_id: str):
-        """Update mental description of a room based on recent observations."""
+        """Update mental description of a room based on recent observations.
+        Uses FAST model for memory summarization."""
         from llm import PromptBuilder
 
         recent_obs_event = (
@@ -258,7 +272,11 @@ class Player:
             observation=observation,
         )
 
-        new_description = self.llm_module.get_response(synthesize_prompt)
+        # Use FAST model for memory summarization (simple update task)
+        fast_llm = create_fast_llm(
+            "You are a memory assistant that updates room descriptions based on new observations."
+        )
+        new_description = fast_llm.get_response(synthesize_prompt)
         self.memory.known_rooms[room_id].update_description(new_description)
         print(f"Player {self.name} updated memory of room {room_id}.")
         print(f"New description: {new_description}")

@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from config import GameConfigs
 from config.constants import GameConstants, ImageGenerationConstants
-from llm import LLMModule, PromptTemplates, create_llm_module
+from llm import LLMModule, PromptTemplates, create_quality_llm
 from llm.text2img_module import Text2ImageGenerator, create_text2img_generator
 from models import Room
 from repositories import RoomRepository, WorldRepository
@@ -41,12 +41,37 @@ class WorldGenerator:
             db_world.art_style if db_world and db_world.art_style else "retro_anime"
         )
 
+        # Debug logging
+        print(f"[WORLD_GEN] World ID: {world_id}")
+        print(f"[WORLD_GEN] DB World found: {db_world is not None}")
+        if db_world:
+            print(f"[WORLD_GEN] DB World theme: {repr(db_world.theme)}")
+            print(f"[WORLD_GEN] DB World art_style: {repr(db_world.art_style)}")
+        print(f"[WORLD_GEN] Using theme: {repr(self.world_theme)}")
+        print(f"[WORLD_GEN] Using art_style: {repr(self.world_art_style)}")
+
         # LLM for room descriptions - include world theme in system prompt
+        # Use QUALITY model for creative room generation
         dm_system_prompt = PromptTemplates.DM_SYSTEM_PROMPT
         if self.world_theme:
             dm_system_prompt = f"{dm_system_prompt}\n\nIMPORTANT: This world has the following theme/setting:\n{self.world_theme}\n\nAll room names and descriptions should fit this theme."
+            print(f"[WORLD_GEN] Added theme to system prompt")
+        else:
+            print(f"[WORLD_GEN] No theme - using default system prompt")
 
-        self.dm_generator_module: LLMModule = create_llm_module(dm_system_prompt)
+        # Debug: Print the actual system prompt being used
+        print(f"[WORLD_GEN] System prompt length: {len(dm_system_prompt)} chars")
+        print(f"[WORLD_GEN] System prompt preview: {dm_system_prompt[:200]}...")
+        if self.world_theme and self.world_theme in dm_system_prompt:
+            print(
+                f"[WORLD_GEN] ✓ Theme '{self.world_theme}' confirmed in system prompt"
+            )
+        elif self.world_theme:
+            print(
+                f"[WORLD_GEN] ✗ WARNING: Theme '{self.world_theme}' NOT found in system prompt!"
+            )
+
+        self.dm_generator_module: LLMModule = create_quality_llm(dm_system_prompt)
 
         # Initialize text-to-image generator if enabled
         self.image_generator: Optional[Text2ImageGenerator] = None
@@ -109,42 +134,15 @@ class WorldGenerator:
                 self.world_art_style, ImageGenerationConstants.ART_STYLES["retro_anime"]
             )
 
-            # Build the prompt based on whether we have a reference image
-            if reference_image_path:
-                # Updating existing room - use reference for consistency
-                prompt = f"""You are an artist for a D&D game.
-
-You draw scenes in the style of: {art_style}
-
---- Room Scene Update ---
-Room: {room.name}
-Updated description: {room.description}
-
-IMPORTANT: Use the reference image provided to maintain visual consistency. Keep the same overall composition, lighting, and architectural elements, but update the scene to reflect the new description. The room should feel like the same location, just with modifications based on the updated description.
-
-Draw the scene WITHOUT any people or characters. Show only the environment and location."""
-            else:
-                # New room - create from scratch
-                prompt = f"""You are an artist for a D&D game.
-
-You draw scenes in the style of: {art_style}
-
---- Room Scene ---
-Room: {room.name}
-Room description: {room.description}
-
-Create a cinematic, atmospheric scene that captures the essence of this room. Draw the scene WITHOUT any people or characters. Show only the environment and location."""
-
-            # Generate the image
-            filename = f"room_{room.id}"
-            reference_images = [reference_image_path] if reference_image_path else None
-
-            image_path = self.image_generator.generate_image(
-                prompt=prompt,
-                output_filename=filename,
-                aspect_ratio="16:9",
-                image_size="2K",
-                reference_images=reference_images,
+            # Use the generate_room_scene method which handles optimization
+            image_path = self.image_generator.generate_room_scene(
+                room_name=room.name,
+                room_description=room.description,
+                player_info="Draw the scene WITHOUT any people or characters. Show only the environment and location.",
+                art_style=art_style,
+                room_id=room.id,
+                reference_image_path=reference_image_path,
+                use_optimization=ImageGenerationConstants.USE_PROMPT_OPTIMIZATION,
             )
 
             # Update room with image path

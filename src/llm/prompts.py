@@ -9,6 +9,38 @@ from string import Template
 class PromptTemplates:
     """Collection of prompt templates for various LLM interactions."""
 
+    # Flash Image Model Prompt Optimization
+    FLASH_IMAGE_OPTIMIZER = Template(
+        """You are a prompt optimizer for image generation models. Your task is to convert a structured prompt into a "dense narrative" format optimized for Flash image models.
+
+FLASH MODEL CHARACTERISTICS:
+- Flash models are literal and work best with concrete visual descriptions
+- They pay most attention to the first 20-30 words (front-load the style)
+- They struggle with abstract concepts
+- They cannot render non-visual elements (sounds, smells, feelings)
+- They work best with a single continuous block of text (no headers or structure)
+
+CONVERSION RULES:
+1. Front-load the art style in the first sentence
+2. Convert ALL abstract concepts to concrete visual descriptions:
+   - "mystical energy" → "glowing blue particles floating, soft cyan rim lighting, magical aura distortion"
+   - "ethereal shadows" → "long translucent shadows with soft purple and blue edges"
+   - "ancient atmosphere" → "cracked weathered stone, moss-covered surfaces, dust motes in air"
+3. Remove or convert non-visual elements
+4. Add explicit texture and detail keywords:
+   - Materials: "with visible grain texture", "sharp distinct reflections", "visible brushstrokes"
+   - Lighting: "with visible rays", "with defined edges", "casting long sharp shadows"
+5. Keep it as ONE continuous paragraph
+
+INPUT TO CONVERT:
+Art Style: ${art_style}
+Room Name: ${room_name}
+Room Description: ${room_description}
+${player_info}
+
+OUTPUT (dense narrative format, single paragraph, 100-150 words):"""
+    )
+
     # Character/Player prompts
     CHARACTER_DESCRIPTION = Template(
         """Provide a ${word_count}-word brief description of your character named ${name}."""
@@ -65,16 +97,6 @@ FORMAT: Use EXACTLY this structure (bullet points only):
 - Any significant traits: [one brief phrase]
 - Last seen in room: [room name or ID]
 
-Good example:
-- My opinion of the player: Trustworthy ally
-- Physical appearance: Tall, wears blue robes
-- Personality: Cautious but helpful
-- Any significant traits: Skilled with magic
-- Last seen in room: Dark Cavern
-
-Bad example (TOO VERBOSE or WRONG FORMAT):
-"This adventurer seems friendly and wears blue robes..."
-
 Your updated memory (use exact format above):"""
     )
 
@@ -90,15 +112,6 @@ FORMAT: Use EXACTLY this structure (bullet points only):
 - Other things notable to senses: [sounds, smells, temperature, etc.]
 - Players present in the room with me: [list names, or "None" if alone]
 - Players previously seen here: [list names of others seen before, or "None"]
-
-Good example:
-- Physical appearance: Dark stone chamber, damp walls
-- Other things notable to senses: Water dripping, smells of earth, cold air
-- Players present in the room with me: John, Sarah
-- Players previously seen here: John, Sarah, Alex (no longer here)
-
-Bad example (TOO VERBOSE or WRONG FORMAT):
-"This is a dark chamber with water dripping..."
 
 Your updated memory (use exact format above):"""
     )
@@ -120,10 +133,6 @@ Good examples:
 - "I examine the ancient runes on the wall"
 - "Hi everyone! Anyone need help?"
 
-Bad examples (TOO VERBOSE):
-- "Cautiously approaching the mysterious chest..."
-- "With great care, I slowly move towards..."
-
 Your response (1-2 sentences only):"""
     )
 
@@ -135,7 +144,6 @@ IMPORTANT: Be concise. Respond like a D&D player would write on their character 
 - Use bullet points for observations
 - No flowery language or lengthy descriptions
 
-Think: "I check for traps" NOT "Cautiously, I approach the chest..."
 """
 
     DM_SYSTEM_PROMPT = """You are the Dungeon Master for a text-based D&D game.
@@ -162,12 +170,6 @@ Requirements:
 - Be creative and unique
 - Evocative and atmospheric
 - Can relate to adjacent rooms OR be completely different
-- You may use fantasy-themed words or concepts like mythical creatures, ancient artifacts, natural phenomena, magical effects, etc.
-
-Avoid:
-- Generic names like "Room 5" or "The Corridor"
-- Overly long names (more than 4 words)
-- Explanatory text or parentheses
 
 Your room name (2-4 words):"""
     )
@@ -182,23 +184,11 @@ ${adjacent_rooms}
 CRITICAL: Your response must be ONLY the pure description text. DO NOT include the room name.
 
 IMPORTANT: Create a room with DRAMATIC progression and its own unique character.
-- If adjacent rooms describe a biome (e.g., crystals, fungi, water), STAY in that biome BUT show DRAMATIC changes within it
-- Think: "Moss-covered stones" → "DENSE moss choking ancient pillars" → "Moss transforms into LIVING VINES"
-- Think: "Crystal formations" → "MASSIVE crystal spires" → "Crystals PULSE with inner light"
+- If adjacent rooms describe a biome, STAY in that biome BUT show DRAMATIC changes within it
 - Each room should feel like a SIGNIFICANT step deeper/forward, not just "more of the same"
 - Include sensory details (see/hear/smell/feel) that INTENSIFY or SHIFT
 - ONE memorable feature that's DIFFERENT from adjacent rooms
 - Show evolution, escalation, or transformation within the biome
-
-Good examples:
-- Natural transition: From "Moss Hall" → "Deeper moss creeps across cracked stone. Moisture drips steadily. The air grows thick with earth-scent."
-- New biome: From "Stone Corridor" → "Glowing fungi spread across the walls. Spores drift lazily in still air. Everything pulses with soft bioluminescence."
-- Unique standalone: "Ancient runes spiral across the floor. Faint blue light traces their patterns. The silence here feels almost sacred."
-
-Bad examples:
-- INCLUDING ROOM NAME: "The Echoing Hall is a chamber..." (NEVER DO THIS)
-- TOO SIMILAR: Exactly copying adjacent room descriptions
-- TOO VAGUE: "A room with stone walls and exits."
 
 Your description (${word_count} words max, NO room name):"""
     )
@@ -212,6 +202,83 @@ ${current_description}
 Update briefly to mention the new ${direction} connection. Keep it concise (add 1 sentence max).
 
 Updated description:"""
+    )
+
+    # Voiceover narration prompts - PUNCHY AND IMMEDIATE
+    VOICEOVER_MOVE_NARRATION = Template(
+        """Narrate the player moving ${direction} to ${to_room_name}.
+
+TO ROOM: ${to_room_description}
+First visit: ${is_first_visit}
+
+Recent narrations (don't repeat): ${recent_narrations}
+
+STYLE RULES:
+- If First visit = "Yes": 1-2 sentences describing what YOU DO and how YOU REACT to the new space
+- If First visit = "No": ONE SHORT SENTENCE about returning
+
+Examples for FIRST VISIT (describe player's actions):
+- "You push through the archway and freeze - the walls pulse with an eerie blue glow that makes your skin tingle."
+- "You step forward into darkness, and your breath catches as you hear water dripping somewhere far below."
+- "You enter cautiously, eyes adjusting to the dim light as the smell of ancient dust fills your lungs."
+
+Examples for RETURNING:
+- "You return to the familiar chamber."
+- "Back again."
+
+Your narration (describe what the PLAYER does):"""
+    )
+
+    VOICEOVER_ACTION_NARRATION = Template(
+        """Narrate this action: ${action_type} - ${action_content}
+
+Room: ${room_description}
+Others present: ${npcs_present}
+
+Recent narrations (don't repeat): ${recent_narrations}
+
+CRITICAL: ONE SHORT SENTENCE ONLY. Focus on immediate physical sensation or reaction. Second person ("You").
+
+Examples:
+- "Your words echo off stone walls."
+- "Cold metal under your fingertips."
+- "Something glints in the darkness ahead."
+
+Your narration (one short sentence):"""
+    )
+
+    VOICEOVER_RETURN_NARRATION = Template(
+        """Narrate returning to ${room_name}.
+
+Room: ${room_description}
+
+Recent narrations (don't repeat): ${recent_narrations}
+
+CRITICAL: ONE SHORT SENTENCE ONLY. Emphasize recognition or change. Second person ("You").
+
+Examples:
+- "The musty air - instantly familiar."
+- "Something's different here."
+- "Back again, like you never left."
+
+Your narration (one short sentence):"""
+    )
+
+    VOICEOVER_FIRST_VISIT_NARRATION = Template(
+        """Narrate entering ${room_name} for the first time.
+
+Room: ${room_description}
+
+Recent narrations (don't repeat): ${recent_narrations}
+
+CRITICAL: ONE SHORT SENTENCE ONLY. Lead with the most striking detail. Second person ("You").
+
+Examples:
+- "The walls pulse with bioluminescent light."
+- "Water drips somewhere in the darkness below."
+- "Ancient symbols cover every surface."
+
+Your narration (one short sentence):"""
     )
 
 

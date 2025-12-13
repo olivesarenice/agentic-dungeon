@@ -265,16 +265,16 @@ class PlayerRepository:
                 # Invalid personality type, will generate random one
                 pass
 
-        # Create player with personality
+        # Create player with existing description and personality
         player = Player(
             name=db_player.name,
             room_id=db_player.current_room_id,
             controller=None,  # Set below
             player_type=player_type,
             personality=personality,
+            description=db_player.description,  # Pass existing description to skip LLM generation
         )
         player.id = db_player.id
-        player.description = db_player.description
 
         # Create appropriate controller with player reference
         if player_type == PlayerType.HUMAN:

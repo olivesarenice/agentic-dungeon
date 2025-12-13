@@ -247,17 +247,43 @@ class BedrockProvider(LLMProvider):
             # Use provided temperature or default to 0.7
             temp = temperature if temperature is not None else 0.7
 
-            # Construct the messages for Claude format
-            messages = [{"role": "user", "content": prompt}]
+            # Detect model type based on model_id
+            is_claude = (
+                "anthropic" in self.model_id.lower()
+                or "claude" in self.model_id.lower()
+            )
+            is_nova = "nova" in self.model_id.lower()
 
-            # Prepare the request body for Claude models
-            request_body = {
-                "anthropic_version": "bedrock-2023-05-31",
-                "max_tokens": 4096,
-                "temperature": temp,
-                "messages": messages,
-                "system": self.system_prompt,
-            }
+            if is_claude:
+                # Claude models use Messages API format
+                messages = [{"role": "user", "content": prompt}]
+                request_body = {
+                    "anthropic_version": "bedrock-2023-05-31",
+                    "max_tokens": 4096,
+                    "temperature": temp,
+                    "messages": messages,
+                    "system": self.system_prompt,
+                }
+            elif is_nova:
+                # Nova models use a different format (no max_tokens, different structure)
+                # Combine system prompt with user prompt
+                full_prompt = f"{self.system_prompt}\n\n{prompt}"
+                request_body = {
+                    "messages": [{"role": "user", "content": [{"text": full_prompt}]}],
+                    "inferenceConfig": {
+                        "temperature": temp,
+                    },
+                }
+            else:
+                # Fallback to Claude format for unknown models
+                messages = [{"role": "user", "content": prompt}]
+                request_body = {
+                    "anthropic_version": "bedrock-2023-05-31",
+                    "max_tokens": 4096,
+                    "temperature": temp,
+                    "messages": messages,
+                    "system": self.system_prompt,
+                }
 
             # Invoke the model
             response = self.client.invoke_model(
@@ -267,11 +293,22 @@ class BedrockProvider(LLMProvider):
             # Parse the response
             response_body = json.loads(response["body"].read())
 
-            # Extract the text from the response
-            if "content" in response_body and len(response_body["content"]) > 0:
-                return response_body["content"][0]["text"]
+            # Extract text based on model type
+            if is_claude:
+                if "content" in response_body and len(response_body["content"]) > 0:
+                    return response_body["content"][0]["text"]
+            elif is_nova:
+                # Nova response format
+                if "output" in response_body and "message" in response_body["output"]:
+                    message = response_body["output"]["message"]
+                    if "content" in message and len(message["content"]) > 0:
+                        return message["content"][0]["text"]
             else:
-                raise Exception("No content in Bedrock response")
+                # Try Claude format for unknown models
+                if "content" in response_body and len(response_body["content"]) > 0:
+                    return response_body["content"][0]["text"]
+
+            raise Exception("No content in Bedrock response")
 
         except Exception as e:
             if LLM_DEBUG:
@@ -343,16 +380,27 @@ class LLMModule:
         Raises:
             Exception: If the API call fails.
         """
+        # Get caller information
+        import inspect
+
+        frame = inspect.currentframe()
+        caller_frame = frame.f_back
+        caller_name = caller_frame.f_code.co_name
+        caller_file = caller_frame.f_code.co_filename.split("/")[-1]
+
+        # Print caller info
+        print(
+            f"[LLM_CALL] {caller_file}::{caller_name}() → {self.provider.get_provider_name()}"
+        )
+
         # Log the prompt if debug mode is enabled
         if LLM_DEBUG:
             logger.debug("=" * 80)
             logger.debug(f"LLM PROMPT ({self.provider.get_provider_name()}):")
             logger.debug("-" * 80)
-            logger.debug(
-                f"SYSTEM: {self.system_prompt[:200]}..."
-                if len(self.system_prompt) > 200
-                else f"SYSTEM: {self.system_prompt}"
-            )
+            # Show FULL system prompt to see if theme is included
+            logger.debug(f"SYSTEM PROMPT ({len(self.system_prompt)} chars):")
+            logger.debug(self.system_prompt)
             logger.debug("-" * 80)
             logger.debug(f"USER PROMPT:\n{prompt}")
             if temperature is not None:
@@ -451,6 +499,58 @@ def create_llm_module(system_prompt: str, **kwargs) -> LLMModule:
         An instance of the LLMModule class.
     """
     return LLMModule(system_prompt, **kwargs)
+
+
+def create_fast_llm(system_prompt: str) -> LLMModule:
+    """
+    Create an LLM module optimized for speed (fast, cheap model).
+    Use for: extraction, summarization, simple transformations.
+
+    Default: us.amazon.nova-micro-v1:0
+
+    Args:
+        system_prompt: The system-level instruction for the model.
+
+    Returns:
+        An instance of the LLMModule class configured with fast model.
+    """
+    fast_model = os.environ.get(
+        "FAST_MODEL", "us.anthropic.claude-3-5-haiku-20241022-v1:0"
+    )
+
+    print(f"[FAST_LLM] Using model: {fast_model}")
+
+    return LLMModule(
+        system_prompt,
+        provider_type="bedrock",
+        model_id=fast_model,
+    )
+
+
+def create_quality_llm(system_prompt: str) -> LLMModule:
+    """
+    Create an LLM module optimized for quality (thinking model).
+    Use for: creative generation, new descriptions, complex reasoning.
+
+    Default: us.anthropic.claude-3-5-haiku-20241022-v1:0
+
+    Args:
+        system_prompt: The system-level instruction for the model.
+
+    Returns:
+        An instance of the LLMModule class configured with quality model.
+    """
+    quality_model = os.environ.get(
+        "QUALITY_MODEL", "us.anthropic.claude-3-5-haiku-20241022-v1:0"
+    )
+
+    print(f"[QUALITY_LLM] Using model: {quality_model}")
+
+    return LLMModule(
+        system_prompt,
+        provider_type="bedrock",
+        model_id=quality_model,
+    )
 
 
 # --- Example Usage ---

@@ -6,7 +6,7 @@ from typing import Optional
 
 from config import GameConfigs
 from config.enums import ActionType, DecisionType
-from llm import PromptTemplates
+from llm import PromptTemplates, create_quality_llm
 from models import Player, Room
 from rendering import CLIRenderer
 from repositories import PlayerRepository
@@ -246,11 +246,17 @@ class TurnSystem:
             )
 
             current_room.update_description(dm_description)
-            # **CRITICAL**: Persist updated room description to database
-            self.world_generator.room_repo.update(current_room)
 
-            # Note: Image regeneration on INTERACT disabled to save API costs
-            # Images are only generated once when rooms are first created
+            # Regenerate room image using previous image as reference for continuity
+            reference_image_path = (
+                current_room.image_filepath if current_room.image_filepath else None
+            )
+            self.world_generator._generate_room_scene_image(
+                current_room, reference_image_path
+            )
+
+            # **CRITICAL**: Persist updated room (description + new image) to database
+            self.world_generator.room_repo.update(current_room)
 
         # Get witnesses (from current player locations)
         witnesses = [

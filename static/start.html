@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agentic Dungeon - Start</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background: #0a0a0a;
+            color: #c9c9c9;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', sans-serif;
+            font-size: 15px;
+            line-height: 1.6;
+            padding: 20px;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .container {
+            max-width: 900px;
+            width: 100%;
+        }
+
+        .panel {
+            background: rgba(18, 18, 18, 0.92);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(80, 70, 60, 0.3);
+            border-radius: 8px;
+            padding: 40px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.8);
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            text-align: center;
+            font-size: 48px;
+            font-weight: 800;
+            letter-spacing: 4px;
+            margin-bottom: 40px;
+            color: #e8d4a8;
+            text-shadow: 0 2px 8px rgba(0, 0, 0, 0.8),
+                0 0 40px rgba(140, 120, 90, 0.3);
+        }
+
+        h2 {
+            font-size: 24px;
+            margin-bottom: 30px;
+            color: #a89070;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            border-bottom: 1px solid rgba(80, 70, 60, 0.3);
+            padding-bottom: 15px;
+        }
+
+        h3 {
+            font-size: 16px;
+            margin-bottom: 15px;
+            color: #a89070;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .section {
+            margin-bottom: 30px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #a89070;
+            font-weight: 500;
+            font-size: 14px;
+        }
+
+        input[type="text"],
+        input[type="number"],
+        select,
+        textarea {
+            width: 100%;
+            background: rgba(20, 18, 16, 0.8);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(80, 70, 60, 0.3);
+            border-radius: 6px;
+            color: #d4d4d4;
+            padding: 14px 16px;
+            font-family: inherit;
+            font-size: 14px;
+            margin-bottom: 15px;
+            transition: all 0.3s ease;
+        }
+
+        input::placeholder,
+        textarea::placeholder {
+            color: rgba(200, 200, 200, 0.3);
+        }
+
+        input:focus,
+        select:focus,
+        textarea:focus {
+            outline: none;
+            border-color: rgba(140, 120, 90, 0.6);
+            box-shadow: 0 0 0 2px rgba(140, 120, 90, 0.1);
+            background: rgba(25, 22, 20, 0.9);
+        }
+
+        textarea {
+            min-height: 100px;
+            resize: vertical;
+        }
+
+        button {
+            background: rgba(40, 35, 30, 0.7);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(80, 70, 60, 0.4);
+            border-radius: 6px;
+            color: #c9c9c9;
+            padding: 15px 30px;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            width: 100%;
+            margin-bottom: 12px;
+        }
+
+        button:hover:not(:disabled) {
+            background: rgba(80, 70, 60, 0.6);
+            border-color: rgba(120, 100, 80, 0.6);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+            transform: translateY(-1px);
+            color: #e8e8e8;
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        button:disabled {
+            opacity: 0.25;
+            cursor: not-allowed;
+            background: rgba(30, 25, 20, 0.4);
+        }
+
+        .world-list {
+            border: 1px solid rgba(80, 70, 60, 0.3);
+            border-radius: 6px;
+            padding: 20px;
+            margin-bottom: 20px;
+            background: rgba(8, 8, 8, 0.5);
+        }
+
+        .world-item {
+            padding: 20px;
+            border: 1px solid rgba(60, 50, 40, 0.3);
+            border-radius: 6px;
+            margin-bottom: 12px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: rgba(20, 18, 16, 0.4);
+        }
+
+        .world-item:hover {
+            border-color: rgba(140, 120, 90, 0.6);
+            background: rgba(30, 25, 20, 0.6);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+        }
+
+        .world-item.selected {
+            border-color: rgba(140, 120, 90, 0.8);
+            background: rgba(40, 35, 30, 0.6);
+            box-shadow: 0 4px 20px rgba(140, 120, 90, 0.2);
+        }
+
+        .world-name {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #e8d4a8;
+        }
+
+        .world-details {
+            font-size: 13px;
+            color: #999;
+            line-height: 1.5;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .examples {
+            font-size: 12px;
+            color: #888;
+            margin-top: -10px;
+            margin-bottom: 15px;
+            padding-left: 12px;
+            line-height: 1.6;
+        }
+
+        .error {
+            color: #d47070;
+            background: rgba(212, 112, 112, 0.1);
+            border: 1px solid rgba(212, 112, 112, 0.3);
+            border-radius: 6px;
+            padding: 12px 16px;
+            margin-bottom: 15px;
+        }
+
+        .loading {
+            text-align: center;
+            color: #a89070;
+            padding: 30px;
+            font-style: italic;
+        }
+
+        .art-style-option {
+            padding: 15px;
+            border: 1px solid rgba(60, 50, 40, 0.3);
+            border-radius: 6px;
+            margin-bottom: 10px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: rgba(20, 18, 16, 0.4);
+        }
+
+        .art-style-option:hover {
+            border-color: rgba(140, 120, 90, 0.6);
+            background: rgba(30, 25, 20, 0.6);
+            transform: translateY(-1px);
+        }
+
+        .art-style-option.selected {
+            border-color: rgba(140, 120, 90, 0.8);
+            background: rgba(40, 35, 30, 0.6);
+            box-shadow: 0 0 0 2px rgba(140, 120, 90, 0.1);
+        }
+
+        .art-style-option strong {
+            color: #e8d4a8;
+            display: block;
+            margin-bottom: 4px;
+        }
+
+        /* Scrollbar styling */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: rgba(20, 20, 20, 0.5);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: rgba(80, 70, 60, 0.6);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(100, 85, 70, 0.8);
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>AGENTIC DUNGEON</h1>
+
+        <!-- Step 1: World Selection -->
+        <div id="step-world-selection" class="panel">
+            <h2>Select or Create World</h2>
+
+            <div id="loading-worlds" class="loading hidden">
+                Loading worlds...
+            </div>
+
+            <div id="worlds-content" class="hidden">
+                <div class="section">
+                    <h3>Existing Worlds</h3>
+                    <div id="world-list" class="world-list">
+                        <!-- Worlds will be loaded here -->
+                    </div>
+                </div>
+
+                <button onclick="selectExistingWorld()" id="btn-select-world">
+                    Load Selected World
+                </button>
+                <button onclick="showCreateWorld()">
+                    Create New World
+                </button>
+            </div>
+
+            <div id="error-worlds" class="error hidden"></div>
+        </div>
+
+        <!-- Step 2: Create New World -->
+        <div id="step-create-world" class="panel hidden">
+            <h2>Create New World</h2>
+
+            <div class="section">
+                <label for="world-name">World Name</label>
+                <input type="text" id="world-name" placeholder="Enter world name (e.g., 'The Forgotten Realm')">
+            </div>
+
+            <div class="section">
+                <label for="world-theme">World Theme/Setting (Optional)</label>
+                <textarea id="world-theme" placeholder="Describe the world theme..."></textarea>
+                <div class="examples">
+                    Examples:<br>
+                    • Middle-earth style world with kingdoms and castles<br>
+                    • Grimdark fantasy in oppressed township and dark woods<br>
+                    • Underwater coral city with bioluminescent creatures<br>
+                    • Space station with abandoned tech and alien artifacts
+                </div>
+            </div>
+
+            <div class="section">
+                <label>Art Style for Room Images</label>
+                <div class="art-style-option" data-style="retro_anime" onclick="selectArtStyle('retro_anime')">
+                    <strong>Retro Anime</strong>
+                    90s anime style like Cowboy Bebop
+                </div>
+                <div class="art-style-option" data-style="pixel_art" onclick="selectArtStyle('pixel_art')">
+                    <strong>Pixel Art</strong>
+                    16-bit retro RPG style
+                </div>
+                <div class="art-style-option" data-style="photorealistic" onclick="selectArtStyle('photorealistic')">
+                    <strong>Photorealistic</strong>
+                    Cinematic film photography
+                </div>
+                <div class="art-style-option" data-style="high_fantasy" onclick="selectArtStyle('high_fantasy')">
+                    <strong>High Fantasy</strong>
+                    Traditional watercolor & oil painting
+                </div>
+            </div>
+
+            <div class="section">
+                <label for="npc-count">Number of NPCs</label>
+                <input type="number" id="npc-count" value="3" min="0" max="20">
+                <div class="examples">
+                    NPCs will explore and interact autonomously in the background
+                </div>
+            </div>
+
+            <button onclick="createWorld()">Create World</button>
+            <button onclick="backToWorldSelection()">Back</button>
+
+            <div id="error-create" class="error hidden"></div>
+        </div>
+
+        <!-- Step 3: Player Setup -->
+        <div id="step-player-setup" class="panel hidden">
+            <h2>Create Your Character</h2>
+
+            <div id="world-info" class="section">
+                <!-- World info will be displayed here -->
+            </div>
+
+            <div class="section">
+                <label for="player-name">Your Character Name</label>
+                <input type="text" id="player-name" placeholder="Enter your character name" value="OLIVER">
+            </div>
+
+            <button onclick="startGame()">Start Game</button>
+
+            <div id="error-player" class="error hidden"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '';
+        let selectedWorldId = null;
+        let selectedArtStyle = 'retro_anime';
+        let worldData = null;
+
+        async function init() {
+            await loadWorlds();
+        }
+
+        async function loadWorlds() {
+            document.getElementById('loading-worlds').classList.remove('hidden');
+            try {
+                const response = await fetch(`${API_BASE}/api/worlds`);
+                const data = await response.json();
+
+                const worldList = document.getElementById('world-list');
+
+                if (data.worlds.length === 0) {
+                    worldList.innerHTML = '<p style="color: #888; text-align: center; padding: 20px;">No worlds found. Create a new one!</p>';
+                } else {
+                    worldList.innerHTML = data.worlds.map(world => `
+                        <div class="world-item" onclick="selectWorld('${world.id}')">
+                            <div class="world-name">${world.name}</div>
+                            <div class="world-details">
+                                ${world.theme ? world.theme + '<br>' : ''}
+                                Art Style: ${world.art_style}<br>
+                                Last Played: ${new Date(world.last_played_at).toLocaleString()}
+                            </div>
+                        </div>
+                    `).join('');
+                }
+
+                document.getElementById('loading-worlds').classList.add('hidden');
+                document.getElementById('worlds-content').classList.remove('hidden');
+
+            } catch (error) {
+                document.getElementById('error-worlds').textContent = `Error loading worlds: ${error.message}`;
+                document.getElementById('error-worlds').classList.remove('hidden');
+                document.getElementById('loading-worlds').classList.add('hidden');
+            }
+        }
+
+        function selectWorld(worldId) {
+            selectedWorldId = worldId;
+            document.querySelectorAll('.world-item').forEach(item => {
+                item.classList.remove('selected');
+            });
+            event.target.closest('.world-item').classList.add('selected');
+        }
+
+        async function selectExistingWorld() {
+            if (!selectedWorldId) {
+                alert('Please select a world first');
+                return;
+            }
+
+            // Load world details
+            try {
+                const response = await fetch(`${API_BASE}/api/worlds/${selectedWorldId}`);
+                worldData = await response.json();
+
+                // Show player setup
+                showPlayerSetup();
+
+            } catch (error) {
+                document.getElementById('error-worlds').textContent = `Error loading world: ${error.message}`;
+                document.getElementById('error-worlds').classList.remove('hidden');
+            }
+        }
+
+        function showCreateWorld() {
+            document.getElementById('step-world-selection').classList.add('hidden');
+            document.getElementById('step-create-world').classList.remove('hidden');
+
+            // Select default art style
+            selectArtStyle('retro_anime');
+        }
+
+        function backToWorldSelection() {
+            document.getElementById('step-create-world').classList.add('hidden');
+            document.getElementById('step-world-selection').classList.remove('hidden');
+        }
+
+        function selectArtStyle(style) {
+            selectedArtStyle = style;
+            document.querySelectorAll('.art-style-option').forEach(option => {
+                option.classList.remove('selected');
+            });
+            document.querySelector(`[data-style="${style}"]`).classList.add('selected');
+        }
+
+        async function createWorld() {
+            const worldName = document.getElementById('world-name').value.trim();
+            const worldTheme = document.getElementById('world-theme').value.trim();
+            const npcCount = parseInt(document.getElementById('npc-count').value);
+
+            if (!worldName) {
+                document.getElementById('error-create').textContent = 'Please enter a world name';
+                document.getElementById('error-create').classList.remove('hidden');
+                return;
+            }
+
+            try {
+                // Create world via API
+                const response = await fetch(`${API_BASE}/api/worlds`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: worldName,
+                        theme: worldTheme || null,
+                        art_style: selectedArtStyle,
+                        npc_count: npcCount
+                    })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to create world');
+                }
+
+                worldData = await response.json();
+                selectedWorldId = worldData.id;
+
+                // Show player setup
+                showPlayerSetup();
+
+            } catch (error) {
+                document.getElementById('error-create').textContent = `Error: ${error.message}`;
+                document.getElementById('error-create').classList.remove('hidden');
+            }
+        }
+
+        function showPlayerSetup() {
+            document.getElementById('step-world-selection').classList.add('hidden');
+            document.getElementById('step-create-world').classList.add('hidden');
+            document.getElementById('step-player-setup').classList.remove('hidden');
+
+            // Display world info
+            const worldInfo = document.getElementById('world-info');
+            worldInfo.innerHTML = `
+                <h3>World: ${worldData.name}</h3>
+                ${worldData.theme ? `<p style="color: #999; margin-bottom: 10px;">${worldData.theme}</p>` : ''}
+                <p style="color: #888; font-size: 12px;">Art Style: ${worldData.art_style}</p>
+            `;
+        }
+
+        async function startGame() {
+            const playerName = document.getElementById('player-name').value.trim();
+
+            if (!playerName) {
+                document.getElementById('error-player').textContent = 'Please enter a character name';
+                document.getElementById('error-player').classList.remove('hidden');
+                return;
+            }
+
+            try {
+                // Create player
+                const response = await fetch(`${API_BASE}/api/players`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        world_id: selectedWorldId,
+                        player_name: playerName,
+                        player_type: 'HUMAN'
+                    })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to create player');
+                }
+
+                const playerData = await response.json();
+
+                // Store player ID and redirect to game
+                localStorage.setItem('playerId', playerData.id);
+                window.location.href = '/game.html';
+
+            } catch (error) {
+                document.getElementById('error-player').textContent = `Error: ${error.message}`;
+                document.getElementById('error-player').classList.remove('hidden');
+            }
+        }
+
+        // Initialize on load
+        window.onload = init;
+    </script>
+</body>
+
+</html>

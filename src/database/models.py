@@ -214,3 +214,22 @@ class DBPlayerKnownRoom(Base):
     # Relationships
     player = relationship("DBPlayer", back_populates="known_rooms")
     room = relationship("DBRoom")
+
+
+class DBNarration(Base):
+    """Database model for voiceover narrations."""
+
+    __tablename__ = "narrations"
+    __table_args__ = (Index("idx_narrations_player", "player_id", "created_at"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    player_id = Column(String, ForeignKey("players.id"), nullable=False)
+    room_id = Column(String, ForeignKey("rooms.id"), nullable=False)
+    narration_text = Column(Text, nullable=False)
+    narration_type = Column(String, nullable=False)  # MOVE, ACTION, ENTRY
+    audio_filepath = Column(String, nullable=True)  # Path to generated audio file
+    created_at = Column(DateTime, nullable=False, default=datetime.now)
+
+    # Relationships
+    player = relationship("DBPlayer")
+    room = relationship("DBRoom")
