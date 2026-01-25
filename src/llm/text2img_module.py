@@ -160,18 +160,28 @@ class Text2ImageGenerator:
 
                 # Generate content - API differs between flash and pro
                 if is_flash_model:
-                    # Flash model: simpler API without config
-                    response = self.client.models.generate_content(
-                        model=self.model_name,
-                        contents=contents,
-                    )
-                elif is_pro_model:
-                    # Pro model: supports advanced config
+                    # Flash model: supports config with aspect ratio
                     response = self.client.models.generate_content(
                         model=self.model_name,
                         contents=contents,
                         config=types.GenerateContentConfig(
-                            response_modalities=["TEXT", "IMAGE"],
+                            response_modalities=["IMAGE"],
+                            image_config=types.ImageConfig(
+                                aspect_ratio=aspect_ratio,
+                            ),
+                        ),
+                    )
+                elif is_pro_model:
+                    # Pro model: supports advanced config
+                    # Note: thinking_config is NOT supported by image generation models
+                    # Using IMAGE-only modality to potentially speed up generation
+                    response = self.client.models.generate_content(
+                        model=self.model_name,
+                        contents=contents,
+                        config=types.GenerateContentConfig(
+                            response_modalities=[
+                                types.Modality.IMAGE
+                            ],  # IMAGE only - skip text generation
                             image_config=types.ImageConfig(
                                 aspect_ratio=aspect_ratio,
                                 image_size=image_size,
