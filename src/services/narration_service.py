@@ -5,7 +5,7 @@ Tracks context and generates unique narrations for each player action.
 
 from typing import Optional
 
-from llm import PromptTemplates, create_quality_llm
+from llm import PromptTemplates, create_fast_llm
 from models import Player, Room
 
 
@@ -25,7 +25,8 @@ class NarrationService:
             "Be immediate and visceral. Second person ('You'). "
             "Examples: 'The stench hits you.' 'Cold steel under your fingers.' 'Darkness swallows the light.'"
         )
-        self.llm = create_quality_llm(system_prompt)
+        # Use FAST model for quick, punchy one-sentence narrations
+        self.llm = create_fast_llm(system_prompt)
         self.last_narrations = {}  # player_id -> list of recent narrations
 
     def _get_context_key(self, player_id: str, room_id: str, action_type: str) -> str:
@@ -176,6 +177,41 @@ class NarrationService:
                 room_description=room.description,
                 recent_narrations=recent,
             )
+
+        narration = self.llm.get_response(prompt).strip()
+        narration = narration.strip('"').strip("'").strip()
+
+        self._track_narration(player.id, narration)
+
+        return narration
+
+    def generate_room_change_narration(
+        self,
+        player: Player,
+        action_description: str,
+        before_description: str,
+        after_description: str,
+    ) -> str:
+        """
+        Generate narration describing how the room changed after a player's interaction.
+
+        Args:
+            player: The player who performed the action
+            action_description: What the player did
+            before_description: Room description before the action
+            after_description: Room description after the action
+
+        Returns:
+            Narration text describing the change
+        """
+        recent = self._get_recent_narrations(player.id)
+
+        prompt = PromptTemplates.VOICEOVER_ROOM_CHANGE_NARRATION.substitute(
+            action_description=action_description,
+            before_description=before_description,
+            after_description=after_description,
+            recent_narrations=recent,
+        )
 
         narration = self.llm.get_response(prompt).strip()
         narration = narration.strip('"').strip("'").strip()

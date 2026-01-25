@@ -313,3 +313,37 @@ class DBNarration(Base):
     # Relationships
     player = relationship("DBPlayer")
     room = relationship("DBRoom")
+
+
+class DBLLMRequest(Base):
+    """Database model for tracking all LLM/AI API requests."""
+
+    __tablename__ = "llm_requests"
+    __table_args__ = (
+        Index("idx_llm_requests_function", "function_call", "created_at"),
+        Index("idx_llm_requests_status", "status", "created_at"),
+    )
+
+    id = Column(String, primary_key=True)  # UUID
+    created_at = Column(DateTime, nullable=False, default=datetime.now)
+
+    # Categorization
+    function_call = Column(
+        String, nullable=False
+    )  # e.g., "llm_get_response", "image_generate", "tts_generate"
+    provider = Column(String, nullable=False)  # e.g., "google", "elevenlabs"
+    model_id = Column(
+        String, nullable=False
+    )  # e.g., "gemini-2.5-flash", "eleven_multilingual_v2"
+
+    # Request/Response
+    status = Column(Integer, nullable=False)  # HTTP status: 200, 429, 500, etc.
+    prompt = Column(Text, nullable=False)  # Input prompt (text)
+    response = Column(
+        Text, nullable=True
+    )  # For text: the response; For media: file path
+
+    # Metadata
+    retry_count = Column(Integer, default=0)  # How many retries before success/failure
+    latency_ms = Column(Integer, nullable=True)  # Response time in milliseconds
+    error_message = Column(Text, nullable=True)  # Error details if failed

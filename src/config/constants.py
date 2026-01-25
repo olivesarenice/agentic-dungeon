@@ -58,13 +58,14 @@ class ImageGenerationConstants:
     # Art style presets for room scenes
     ART_STYLES = {
         "retro_anime": """Retro 90s anime style screenshot. Hand-painted background textures with visible brushstrokes, distinct high-contrast white highlights, VHS film grain effect, slight color bleeding, muted color palette with occasional vibrant accents. The style should evoke nostalgia for classic anime like Cowboy Bebop and Samurai Champloo. 4:3 aspect ratio aesthetic.""",
-        "pixel_art": """16-bit pixel art scene that looks like a screenshot from a 1990s console RPG. Use a limited color palette (256 colors max), visible square pixel grid structure, dithering technique for shadows and gradients, clean pixel edges without anti-aliasing. The scene should have the charm of classic SNES/Genesis era games. 4:3 aspect ratio aesthetic.""",
+        "pixel_art": """detailed 16-bit isometric pixel art aesthetic, reminiscent of classic 1990s console RPGs. The style features a rich, naturalistic color palette. Texturing relies heavily on extensive dithering techniques to create gradients, complex shadows, and weathered surfaces. The lighting is dramatic and moody, characterized by strong directional light sources, distinct highlights, and pixelated particle effects for atmosphere. Pixel edges are sharp and defined, without anti-aliasing.""",
         "photorealistic": """Cinematic photorealistic still with film camera aesthetics. 35mm lens equivalent, f/2.8 aperture for shallow depth of field. Dramatic three-point lighting: harsh key light creating strong shadows, soft fill light to reduce contrast, subtle rim/back light for depth. Include environmental details like atmospheric haze, light rays, floating dust particles. Teal and orange color grade, slightly desaturated for cinematic tension. 4K resolution quality, 2.39:1 cinematic framing.""",
-        "high_fantasy": """High Fantasy Traditional Illustration combining watercolor fluidity with oil painting richness. This must look like a physical painting by a master artist, not a digital render. Use traditional media illustration techniques: visible brushwork, pigment granulation, watercolor washes and bleeds on textured paper, combined with oil paint's opacity and rich pigment density. Soft diffused lighting giving a luminous painted quality.""",
+        "low_poly": """Stylized Flat-Shaded Low Poly. The scene is rendered with sharp, angular geometric planes that look like folded paper or cut crystal. No pixel textures or noise—only solid, flat colors used to define depth. Objects blocky with sharp edges. The lighting is soft and atmospheric, using pastel gradients rather than harsh black shadows. The aesthetic is clean, serene, and minimalist, resembling high-quality indie game concept art.""",
+        # "high_fantasy": """Vintage Dark Fantasy Etching. Intricate black ink line work onSleepywood  aged, off-white paper. Style mimicking 19th-century engravings (Gustave Doré style). Heavy use of cross-hatching to create deep shadows and volume. Monochromatic, gritty, and macabre.""",
     }
 
     # Current selected style (change this to switch styles)
-    # Options: "retro_anime", "pixel_art", "photorealistic", "high_fantasy"
+    # Options: "retro_anime", "pixel_art", "photorealistic", "low_poly"
     SELECTED_STYLE = "retro_anime"
 
     @classmethod
@@ -87,7 +88,7 @@ class TTSConstants:
     """Text-to-Speech (TTS) generation constants."""
 
     # Enable/disable TTS generation (ElevenLabs)
-    ENABLED = False  # Set to True to enable voice narration
+    ENABLED = True  # Set to True to enable voice narration
 
     # Output directory for generated audio files
     OUTPUT_DIR = "generated_narrations"

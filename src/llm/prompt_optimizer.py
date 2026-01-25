@@ -103,7 +103,7 @@ class PromptOptimizer:
         Returns:
             Optimized prompt for the specific model
         """
-        if self.is_flash_model(model_name):
+        if True:  # self.is_flash_model(model_name):
             # Use LLM to convert to Flash-optimized format
             return self.optimize_for_flash(
                 art_style=art_style,

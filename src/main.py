@@ -54,7 +54,7 @@ def main():
         print("  1. Retro Anime (90s anime style like Cowboy Bebop)")
         print("  2. Pixel Art (16-bit retro RPG style)")
         print("  3. Photorealistic (Cinematic film photography)")
-        print("  4. High Fantasy (Traditional watercolor & oil painting)")
+        print("  4. Low Poly (Stylized flat-shaded geometric style)")
         art_style_choice = input(
             "\nArt style (1-4, or press Enter for Retro Anime): "
         ).strip()
@@ -63,7 +63,7 @@ def main():
             "1": "retro_anime",
             "2": "pixel_art",
             "3": "photorealistic",
-            "4": "high_fantasy",
+            "4": "low_poly",
         }
         art_style = art_style_map.get(art_style_choice, "retro_anime")
 
@@ -115,7 +115,7 @@ def main():
             print("  1. Retro Anime (90s anime style like Cowboy Bebop)")
             print("  2. Pixel Art (16-bit retro RPG style)")
             print("  3. Photorealistic (Cinematic film photography)")
-            print("  4. High Fantasy (Traditional watercolor & oil painting)")
+            print("  4. Low Poly (Stylized flat-shaded geometric style)")
             art_style_choice = input(
                 "\nArt style (1-4, or press Enter for Retro Anime): "
             ).strip()
@@ -124,7 +124,7 @@ def main():
                 "1": "retro_anime",
                 "2": "pixel_art",
                 "3": "photorealistic",
-                "4": "high_fantasy",
+                "4": "low_poly",
             }
             art_style = art_style_map.get(art_style_choice, "retro_anime")
 

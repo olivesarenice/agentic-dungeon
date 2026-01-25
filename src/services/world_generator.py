@@ -115,18 +115,22 @@ class WorldGenerator:
             rooms[d] = adjacent_room
         return rooms
 
-    def _generate_room_scene_image(
+    def _generate_image_only(
         self, room: Room, reference_image_path: Optional[str] = None
-    ) -> None:
+    ) -> Optional[str]:
         """
-        Generate a scene image for the room and update the room's image_filepath.
+        Generate image only - does NOT update database (for thread safety).
+        Returns the image path for later batch DB update.
 
         Args:
             room: The room to generate an image for
             reference_image_path: Optional path to existing image for grounding/consistency
+
+        Returns:
+            Path to generated image, or None if failed
         """
         if not self.image_generator:
-            return
+            return None
 
         try:
             # Get the art style for this world
@@ -145,6 +149,26 @@ class WorldGenerator:
                 use_optimization=ImageGenerationConstants.USE_PROMPT_OPTIMIZATION,
             )
 
+            return image_path
+
+        except Exception as e:
+            print(f"Warning: Could not generate image for room {room.name}: {e}")
+            return None
+
+    def _generate_room_scene_image(
+        self, room: Room, reference_image_path: Optional[str] = None
+    ) -> None:
+        """
+        Generate a scene image for the room and update the room's image_filepath.
+        NOTE: For batch operations, use _generate_image_only() + batch DB update.
+
+        Args:
+            room: The room to generate an image for
+            reference_image_path: Optional path to existing image for grounding/consistency
+        """
+        image_path = self._generate_image_only(room, reference_image_path)
+
+        if image_path:
             # Update room with image path
             room.image_filepath = image_path
 
@@ -157,10 +181,6 @@ class WorldGenerator:
                 )
             else:
                 print(f"✨ Generated scene image for {room.name}: {image_path}")
-
-        except Exception as e:
-            print(f"Warning: Could not generate image for room {room.name}: {e}")
-            # Continue without image
 
     def create_room(
         self,
@@ -273,7 +293,11 @@ class WorldGenerator:
         return self.room_repo.get_map()
 
     def create_organic_labyrinth(
-        self, max_rooms: int, starting_coords: tuple[int, int] = None
+        self,
+        max_rooms: int,
+        starting_coords: tuple[int, int] = None,
+        progress_callback: callable = None,
+        grid_size: int = None,
     ) -> Room:
         """
         V3 Organic: Create a natural, winding labyrinth with specified number of rooms.
@@ -282,6 +306,8 @@ class WorldGenerator:
         Args:
             max_rooms: Target number of rooms (e.g., 4, 16, 25)
             starting_coords: Starting coordinates (defaults to origin)
+            progress_callback: Optional callback(step: str, percent: int, rooms_done: int)
+            grid_size: Grid size for treasure count (if None, uses sqrt of max_rooms)
 
         Returns:
             The starting room
@@ -291,9 +317,16 @@ class WorldGenerator:
         if starting_coords is None:
             starting_coords = (0, 0)
 
+        def emit_progress(step: str, percent: int, rooms_done: int = 0):
+            """Helper to emit progress updates."""
+            if progress_callback:
+                progress_callback(step, percent, rooms_done)
+
         print(f"\n🌿 Creating organic labyrinth with {max_rooms} rooms...")
         print(f"   Starting at: {starting_coords}")
         print(f"\n📝 Phase 1: Generating labyrinth structure...\n")
+
+        emit_progress("Creating starting room...", 10, 0)
 
         # Step 1: Create starting room
         starting_room = self._create_simple_room(starting_coords, None, None)
@@ -306,6 +339,8 @@ class WorldGenerator:
         # Queue: (coords, parent_room, came_from_direction, depth)
         queue = deque([(starting_coords, starting_room, None, 0)])
         room_count = 1
+
+        emit_progress(f"Generating room descriptions... (1/{max_rooms})", 15, 1)
 
         # Step 2: Organically grow the labyrinth
         while queue and room_count < max_rooms:
@@ -373,13 +408,30 @@ class WorldGenerator:
                 occupied_coords.add(next_coords)
                 queue.append((next_coords, new_room, opposite, depth + 1))
 
+                # Emit progress for room creation (10-40% range)
+                room_progress = 10 + int((room_count / max_rooms) * 30)
+                emit_progress(
+                    f"Generating room descriptions... ({room_count}/{max_rooms})",
+                    room_progress,
+                    room_count,
+                )
+
         print(f"\n✅ Generated {len(all_rooms)} rooms in organic labyrinth\n")
 
-        # Step 3: Batch generate images
+        # Step 3: Prepare treasures BEFORE image generation
+        # This enhances descriptions so images include the hiding spots
+        num_treasures = grid_size if grid_size else int(len(all_rooms) ** 0.5)
+        emit_progress(f"Preparing treasures...", 38, room_count)
+        self._prepare_treasures(all_rooms, num_treasures, progress_callback)
+
+        # Step 4: Batch generate images (now with enhanced treasure descriptions)
         if self.image_generator:
-            print(f"🎨 Phase 2: Generating images for {len(all_rooms)} rooms...")
-            self._batch_generate_images(all_rooms)
+            print(f"🎨 Phase 3: Generating images for {len(all_rooms)} rooms...")
+            emit_progress(f"Generating images... (0/{len(all_rooms)})", 40, room_count)
+            self._batch_generate_images(all_rooms, progress_callback=progress_callback)
             print(f"✅ All images generated!\n")
+
+        emit_progress("Finalizing labyrinth...", 88, room_count)
 
         # Reload and return starting room
         return self.room_repo.get_by_coords(starting_coords[0], starting_coords[1])
@@ -592,53 +644,263 @@ class WorldGenerator:
 
         return room
 
-    def _batch_generate_images(self, rooms: list[Room]) -> None:
+    def _batch_generate_images(
+        self, rooms: list[Room], progress_callback: callable = None
+    ) -> None:
         """
         Generate images for multiple rooms in parallel for efficiency.
+        NOTE: SQLAlchemy sessions are NOT thread-safe, so we generate images
+        in parallel but collect results and update DB in main thread.
 
         Args:
             rooms: List of rooms to generate images for
+            progress_callback: Optional callback(step: str, percent: int, rooms_done: int)
         """
         import concurrent.futures
         from threading import Lock
 
-        # Thread-safe counter for progress
+        # Thread-safe counter for progress and results collection
         progress = {"completed": 0}
+        image_results = {}  # room_id -> image_path
         lock = Lock()
+        total_rooms = len(rooms)
 
-        def generate_single_image(room: Room) -> None:
-            """Generate image for a single room."""
+        def generate_single_image(room: Room) -> tuple[str, str]:
+            """Generate image for a single room. Returns (room_id, image_path)."""
             try:
-                self._generate_room_scene_image(room)
+                image_path = self._generate_image_only(room)
                 with lock:
                     progress["completed"] += 1
+                    completed = progress["completed"]
                     print(
-                        f"   [{progress['completed']}/{len(rooms)}] Generated image for: {room.name}"
+                        f"   [{completed}/{total_rooms}] Generated image for: {room.name}"
                     )
+                    # Emit progress (40-88% range for images)
+                    if progress_callback:
+                        img_progress = 40 + int((completed / total_rooms) * 48)
+                        progress_callback(
+                            f"Generating images... ({completed}/{total_rooms})",
+                            img_progress,
+                            completed,
+                        )
+                return (room.id, image_path)
             except Exception as e:
                 print(f"   ⚠️  Failed to generate image for {room.name}: {e}")
+                return (room.id, None)
 
         # Use ThreadPoolExecutor for parallel image generation
-        # Max 5 concurrent requests to avoid rate limiting
-        max_workers = min(5, len(rooms))
+        # Max 16 concurrent requests to avoid rate limiting
+        max_workers = min(16, len(rooms))
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # Submit all image generation tasks
-            futures = [executor.submit(generate_single_image, room) for room in rooms]
+            # Submit image generation tasks with staggered delays to avoid rate limit bursts
+            import time
 
-            # Wait for all to complete
-            concurrent.futures.wait(futures)
+            futures = []
+            for i, room in enumerate(rooms):
+                futures.append(executor.submit(generate_single_image, room))
+                # Add 1 second delay between submissions (except for last one)
+                if i < len(rooms) - 1:
+                    time.sleep(1.0)
+
+            # Collect results as they complete
+            for future in concurrent.futures.as_completed(futures):
+                room_id, image_path = future.result()
+                if image_path:
+                    image_results[room_id] = image_path
+
+        # Update database in main thread (thread-safe)
+        print(f"   💾 Saving {len(image_results)} image paths to database...")
+        for room_id, image_path in image_results.items():
+            room = self.room_repo.get(room_id)
+            if room:
+                room.image_filepath = image_path
+                self.room_repo.update(room)
+
+        # Single commit for all updates
+        self.session.commit()
+        print(f"   ✓ Database updated")
+
+    def _prepare_treasures(
+        self,
+        all_rooms: list[Room],
+        num_treasures: int,
+        progress_callback: callable = None,
+    ) -> None:
+        """
+        Select treasure rooms and enhance their descriptions BEFORE image generation.
+        Stores treasure info on room objects for later DB creation.
+
+        Args:
+            all_rooms: List of all rooms in the labyrinth
+            num_treasures: Number of treasures to place
+            progress_callback: Optional callback for progress updates
+        """
+        import random
+
+        print(f"🎯 Preparing {num_treasures} treasures...")
+
+        # Filter out starting room
+        available_rooms = [r for r in all_rooms if not r.is_starting_room]
+
+        if len(available_rooms) < num_treasures:
+            num_treasures = len(available_rooms)
+
+        # Randomly select rooms for treasures
+        treasure_rooms = random.sample(available_rooms, num_treasures)
+
+        for i, room in enumerate(treasure_rooms):
+            if progress_callback:
+                progress_callback(
+                    f"Preparing treasure {i + 1}/{num_treasures}...",
+                    38 + int((i / num_treasures) * 2),
+                    len(all_rooms),
+                )
+
+            # 1. Generate themed treasure name
+            treasure_name = self._generate_themed_treasure_name(room)
+
+            # 2. Enhance description with prominent hiding spot
+            enhanced_desc, hint_object = self._enhance_description_for_treasure(
+                room.description, treasure_name
+            )
+
+            # 3. Update room description
+            room.update_description(enhanced_desc)
+            room.has_treasure = True
+            room._treasure_info = (treasure_name, hint_object)  # Temp storage
+
+            # 4. Persist to DB (description updated BEFORE image generation)
+            self.room_repo.update(room)
+
+            print(
+                f"   ✓ Prepared '{treasure_name}' in '{room.name}' (hint: {hint_object})"
+            )
+
+        print(f"✅ All treasures prepared!\n")
+
+    def _generate_themed_treasure_name(self, room: Room) -> str:
+        """Generate a treasure name that fits the room and world theme."""
+        prompt = PromptTemplates.TREASURE_NAME_THEMED.substitute(
+            world_theme=self.world_theme or "fantasy dungeon",
+            room_name=room.name,
+            room_description=room.description,
+        )
+
+        name = self.dm_generator_module.get_response(prompt, temperature=0.9).strip()
+        # Clean up any quotes or extra formatting
+        name = name.strip('"').strip("'").strip()
+        # Remove any prefix like "Treasure name:" if present
+        if ":" in name:
+            name = name.split(":")[-1].strip()
+        return name
+
+    def _enhance_description_for_treasure(
+        self, original_desc: str, treasure_name: str
+    ) -> tuple[str, str]:
+        """
+        Enhance room description to highlight a hiding spot.
+        Returns: (enhanced_description, hint_object)
+        """
+        prompt = PromptTemplates.ENHANCE_DESCRIPTION_FOR_TREASURE.substitute(
+            original_description=original_desc, treasure_name=treasure_name
+        )
+
+        response = self.dm_generator_module.get_response(
+            prompt, temperature=0.7
+        ).strip()
+
+        # Parse response - expect format: "description text... [object]"
+        if "[" in response and "]" in response:
+            bracket_start = response.rfind("[")
+            bracket_end = response.rfind("]")
+            hint_object = response[bracket_start + 1 : bracket_end].strip().lower()
+            enhanced_desc = response[:bracket_start].strip()
+        else:
+            # Fallback: use existing _identify_treasure_container logic
+            enhanced_desc = response
+            hint_object = self._identify_treasure_container_fallback(response)
+
+        return enhanced_desc, hint_object
+
+    def _identify_treasure_container_fallback(self, description: str) -> str:
+        """Fallback method to extract a noun from description if bracket parsing fails."""
+        from llm import create_fast_llm
+
+        fast_llm = create_fast_llm(
+            "You are an expert at extracting single nouns from text."
+        )
+
+        prompt = f"""From this description, extract ONE SINGLE WORD noun that could hide a treasure.
+
+DESCRIPTION: {description}
+
+Return ONLY one word (a noun like: chest, altar, pool, rock, urn, etc.):"""
+
+        response = fast_llm.get_response(prompt, temperature=0.3).strip()
+        hint_object = response.lower().strip('"').strip("'").strip(".").strip()
+
+        # Take only first word if multiple returned
+        if " " in hint_object:
+            hint_object = hint_object.split()[0]
+
+        return hint_object if hint_object else "object"
+
+    def _finalize_treasures(self, session) -> None:
+        """Create DBItem records for all prepared treasures."""
+        import uuid
+
+        from database.models import DBItem
+
+        rooms = self.room_repo.get_all()
+        treasure_count = 0
+
+        for room in rooms:
+            if hasattr(room, "_treasure_info") and room._treasure_info:
+                treasure_name, hint_object = room._treasure_info
+                treasure_count += 1
+
+                item = DBItem(
+                    id=str(uuid.uuid4()),
+                    world_id=self.world_id,
+                    room_id=room.id,
+                    name=treasure_name,
+                    description=f"A precious artifact: {treasure_name}",
+                    item_type="TREASURE",
+                    interaction_hint=hint_object,
+                )
+                session.add(item)
+                print(
+                    f"   ✓ Created treasure record: '{treasure_name}' in '{room.name}'"
+                )
+
+        session.commit()
+        print(f"✅ {treasure_count} treasure records created!\n")
 
     def place_treasures(self, grid_size: int, session) -> None:
         """
-        V3: Place treasures in random rooms by identifying objects in existing descriptions.
-        Number of treasures = grid_size (3, 5, or 7)
-
-        Does NOT modify room descriptions to preserve description/image match.
+        DEPRECATED: Use _prepare_treasures() + _finalize_treasures() instead.
+        This method is kept for backward compatibility but now just calls _finalize_treasures.
 
         Args:
             grid_size: Size of grid (determines number of treasures)
             session: Database session for adding items
+        """
+        # If treasures were prepared during labyrinth generation, just finalize them
+        rooms = self.room_repo.get_all()
+        has_prepared_treasures = any(
+            hasattr(r, "_treasure_info") and r._treasure_info for r in rooms
+        )
+
+        if has_prepared_treasures:
+            self._finalize_treasures(session)
+        else:
+            # Fallback to old behavior for backward compatibility
+            self._place_treasures_legacy(grid_size, session)
+
+    def _place_treasures_legacy(self, grid_size: int, session) -> None:
+        """
+        Legacy treasure placement (for backward compatibility).
         """
         import random
         import uuid
@@ -646,7 +908,7 @@ class WorldGenerator:
         from database.models import DBItem
 
         num_treasures = grid_size
-        print(f"🎯 Hiding {num_treasures} treasures...")
+        print(f"🎯 Hiding {num_treasures} treasures (legacy mode)...")
 
         # Get all rooms except starting room
         rooms_dict = self.get_rooms_dict()
@@ -733,20 +995,22 @@ class WorldGenerator:
         else:
             context = "This is the first room - create something memorable!"
 
-        prompt = f"""Generate a dungeon room name and description.
+        prompt = f"""Generate a dungeon location name and description.
 
 CONTEXT:
 {context}
 
 INSTRUCTIONS:
-1. Create an evocative 2-4 word room name
+1. Create an evocative 2-4 word location name (can be room, clearing, passage, cavern, ledge, etc.)
 2. Write a {GameConstants.DEFAULT_DESCRIPTION_WORDS}-word atmospheric description
-3. Match the theme and connect naturally with adjacent rooms
+3. Match the theme and connect naturally with adjacent areas
+4. NOT limited to indoor rooms - can be outdoor spaces, natural formations, transitional areas
+5. Keep it a single explorable AREA (not a vast region or entire forest)
 
 OUTPUT FORMAT (Python tuple):
-("Room Name Here", "Description here with all the atmospheric details...")
+("Location Name Here", "Description here with all the atmospheric details...")
 
-Generate the room:"""
+Generate the location:"""
 
         response = self.dm_generator_module.get_response(
             prompt, temperature=1.0
@@ -797,13 +1061,24 @@ Generate ONE treasure name (2-5 words):"""
 
     def _identify_treasure_container(self, room: Room, treasure_name: str) -> str:
         """
-        Identify an object in the existing room description that could contain the treasure.
+        Identify a SINGLE WORD object in the existing room description that could contain the treasure.
+        Uses retry logic to ensure the word exists in the description.
         Does NOT modify the description.
 
         Returns:
-            Object name that contains the treasure
+            Single word noun that contains the treasure (guaranteed to exist in description)
         """
-        prompt = f"""Look at this room description and identify ONE object that could logically contain a hidden treasure.
+        from llm import create_fast_llm
+
+        fast_llm = create_fast_llm(
+            "You are an expert at extracting single nouns from text."
+        )
+
+        max_retries = 3
+        desc_lower = room.description.lower()
+
+        for attempt in range(max_retries):
+            prompt = f"""Look at this room description and identify ONE SINGLE WORD noun that could logically contain a hidden treasure.
 
 ROOM:
 Name: {room.name}
@@ -812,23 +1087,36 @@ Description: {room.description}
 TREASURE:
 {treasure_name}
 
-INSTRUCTIONS:
-1. Choose an existing object mentioned in the description
-2. It should be something that could realistically hide/contain a treasure
-3. Examples: chest, box, altar, statue, pedestal, vase, urn, etc.
-4. Return ONLY the object name (2-4 words maximum)
-5. Make it something a player would naturally want to interact with
+CRITICAL INSTRUCTIONS:
+1. Return ONLY ONE WORD (a noun) that appears EXACTLY in the description
+2. Choose a word that could realistically hide/contain a treasure
+3. The word MUST exist in the description - copy it exactly as written
+4. Examples: chest, altar, statue, pedestal, vase, urn, throne, pillar, fountain, pool, tree, rock, bones, shell, nest, etc.
+5. DO NOT use adjectives or phrases - just the core noun
+6. If you previously returned a word not in the description, try a different noun
 
-Object that contains the treasure:"""
+Extract the single word:"""
 
-        response = self.dm_generator_module.get_response(prompt, temperature=0.7)
+            response = fast_llm.get_response(prompt, temperature=0.3).strip()
 
-        # Clean up the response
-        hint_object = response.strip().lower()
-        hint_object = hint_object.strip('"').strip("'").strip(".")
+            # Clean up the response
+            hint_object = response.lower().strip('"').strip("'").strip(".").strip()
 
-        # Fallback if LLM returns something weird
-        if len(hint_object) > 50 or len(hint_object) < 3:
-            hint_object = "mysterious object"
+            # Take only first word if multiple returned
+            if " " in hint_object:
+                hint_object = hint_object.split()[0]
 
-        return hint_object
+            # Verify the word exists in the description
+            if hint_object in desc_lower:
+                print(
+                    f"   ✓ Found valid hint word: '{hint_object}' (attempt {attempt + 1})"
+                )
+                return hint_object
+            else:
+                print(
+                    f"   ⚠️  Attempt {attempt + 1}: LLM returned '{hint_object}' not in description, retrying..."
+                )
+
+        # If all retries failed, use absolute fallback
+        print(f"   ⚠️  All retries failed, using fallback")
+        return "object"

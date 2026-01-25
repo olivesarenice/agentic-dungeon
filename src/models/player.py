@@ -7,7 +7,7 @@ from uuid import uuid4
 
 from config.constants import GameConstants
 from config.enums import PlayerType
-from llm import LLMModule, create_fast_llm, create_llm_module
+from llm import LLMModule, create_fast_llm
 
 from .events import GameEvent
 from .memory import Memory, PlayerEntry, RoomEntry
@@ -68,23 +68,17 @@ class Player:
         else:
             self.personality: Optional[NPCPersonality] = None
 
-        # Load up the LLM memory with base prompt
-        self.llm_module: LLMModule = llm_module or create_llm_module(
-            self.DEFAULT_LLM_SYSTEM_PROMPT
-        )
-
         # Use provided description or generate new one
         if description:
             self.description: str = description
             print(f"[PLAYER] Loaded existing description for {self.name}")
         else:
-            self.description: str = self.llm_module.get_response(
+            # Use FAST model for simple description generation
+            temp_llm = llm_module or create_fast_llm(self.DEFAULT_LLM_SYSTEM_PROMPT)
+            self.description: str = temp_llm.get_response(
                 f"Provide a {GameConstants.DEFAULT_DESCRIPTION_WORDS}-word brief description of your character named {self.name}."
             )
             print(f"[PLAYER] Generated new description for {self.name}")
-
-        # Update the LLM module with self-description
-        self.update_llm_module()
 
     def _generate_random_personality(self) -> NPCPersonality:
         """Generate a random personality for an NPC."""
@@ -92,20 +86,6 @@ class Player:
 
         personality_type = random.choice(list(PersonalityType))
         return NPCPersonality(personality_type=personality_type)
-
-    def describe_self(self) -> str:
-        """Get a description of this player for LLM context."""
-        return f"""
-                These are details about yourself.
-                Name: {self.name}
-                Description: {self.description}
-                        """
-
-    def update_llm_module(self) -> None:
-        """Update the LLM module with current self-description."""
-        self.llm_module = create_llm_module(
-            self.DEFAULT_LLM_SYSTEM_PROMPT + self.describe_self()
-        )
 
     def move(self, from_room_id: str, action_taken: str, to_room_id: str) -> None:
         """

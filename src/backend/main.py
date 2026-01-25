@@ -103,8 +103,8 @@ class CreateWorldRequest(BaseModel):
 
 @app.get("/")
 async def root():
-    """Root endpoint - serve start page."""
-    return FileResponse("static/start.html")
+    """Root endpoint - serve main Vue app."""
+    return FileResponse("static/index.html")
 
 
 @app.get("/api/health")
@@ -120,25 +120,46 @@ async def health_check():
 
 @app.get("/api/worlds")
 async def list_worlds():
-    """List all available game worlds."""
+    """List all available game worlds with room count and lobby image."""
     session = SessionLocal()
     try:
-        from database.models import DBWorld
+        from database.models import DBRoom, DBWorld
 
         worlds = session.query(DBWorld).all()
-        return {
-            "worlds": [
+        world_list = []
+
+        for world in worlds:
+            # Get room count
+            room_count = (
+                session.query(DBRoom).filter(DBRoom.world_id == world.id).count()
+            )
+
+            # Get lobby/starting room image
+            lobby_room = (
+                session.query(DBRoom)
+                .filter(DBRoom.world_id == world.id, DBRoom.is_starting_room == True)
+                .first()
+            )
+            lobby_image_url = None
+            if lobby_room and lobby_room.image_filepath:
+                filename = Path(lobby_room.image_filepath).name
+                lobby_image_url = f"/images/{filename}"
+
+            world_list.append(
                 {
                     "id": world.id,
                     "name": world.name,
                     "theme": world.theme,
                     "art_style": world.art_style,
+                    "room_count": room_count,
+                    "lobby_image_url": lobby_image_url,
+                    "generation_status": world.generation_status,
                     "created_at": world.created_at.isoformat(),
                     "last_played_at": world.last_played_at.isoformat(),
                 }
-                for world in worlds
-            ]
-        }
+            )
+
+        return {"worlds": world_list}
     finally:
         session.close()
 
@@ -196,9 +217,14 @@ async def get_world_players(world_id: str):
         session.close()
 
 
+# Store active generation tasks
+generation_tasks: dict[str, dict] = {}
+
+
 @app.post("/api/worlds")
 async def create_world(request: CreateWorldRequest):
-    """Create a new world with rooms and NPCs."""
+    """Create a new world - starts async generation and returns immediately."""
+    import asyncio
     import uuid
 
     from faker import Faker
@@ -207,7 +233,7 @@ async def create_world(request: CreateWorldRequest):
     session = SessionLocal()
 
     try:
-        from database.models import DBWorld
+        from database.models import DBWorld, DBWorldGenerationTask
         from repositories import WorldRepository
 
         # V3: Calculate center coordinates for grid
@@ -220,25 +246,42 @@ async def create_world(request: CreateWorldRequest):
             name=request.name,
             theme=request.theme,
             art_style=request.art_style,
-            grid_size=request.grid_size,  # V3
+            grid_size=request.grid_size,
+            generation_status="GENERATING",
             created_at=datetime.now(),
             last_played_at=datetime.now(),
-            starting_coords_x=center,  # V3: Start at grid center
+            starting_coords_x=center,
             starting_coords_y=center,
         )
 
         world_repo = WorldRepository(session)
         world_repo.add(db_world)
 
-        # IMPORTANT: Commit the world to database BEFORE creating GameManager
-        # Otherwise the GameManager's session won't see the theme
+        # Create generation task record
+        max_rooms = request.grid_size * request.grid_size
+        gen_task = DBWorldGenerationTask(
+            world_id=world_id,
+            status="GENERATING",
+            progress_percent=0,
+            current_step="Initializing...",
+            total_rooms=max_rooms,
+            generated_rooms=0,
+            started_at=datetime.now(),
+        )
+        session.add(gen_task)
         session.commit()
+
+        # Store task info for tracking
+        generation_tasks[world_id] = {
+            "npc_count": request.npc_count,
+            "grid_size": request.grid_size,
+        }
 
         print(f"\n{'='*60}")
         print(f"Creating V3 World: {request.name}")
         print(f"  ID: {world_id}")
         print(
-            f"  Grid Size: {request.grid_size}x{request.grid_size} ({request.grid_size * request.grid_size} rooms)"
+            f"  Grid Size: {request.grid_size}x{request.grid_size} ({max_rooms} rooms)"
         )
         if request.theme:
             print(f"  Theme: {request.theme}")
@@ -246,34 +289,10 @@ async def create_world(request: CreateWorldRequest):
         print(f"  NPCs: {request.npc_count}")
         print(f"{'='*60}\n")
 
-        # Initialize game manager and create organic labyrinth
-        game_manager = get_or_create_game_manager(world_id)
-
-        # Calculate max_rooms from grid_size (for backwards compatibility)
-        # grid_size 2 = 4 rooms, 3 = 9 rooms, 4 = 16 rooms
-        max_rooms = request.grid_size * request.grid_size
-
-        game_manager.world_generator.create_organic_labyrinth(max_rooms)
-
-        # V3: Place treasures (same number as grid_size for consistency)
-        game_manager.world_generator.place_treasures(request.grid_size, session)
-
-        # Update world with treasure count
-        db_world.total_treasures = request.grid_size
-        session.commit()
-
-        # Create NPCs
-        if request.npc_count > 0:
-            print(f"👥 Spawning {request.npc_count} NPCs...")
-            for i in range(request.npc_count):
-                npc_name = fake.user_name() + "_" + str(fake.random_number(digits=3))
-                game_manager.create_player(npc_name, PlayerType.NPC)
-                print(f"   ✓ {npc_name}")
-            print()
-
-        print(f"{'='*60}")
-        print(f"✅ World '{request.name}' ready to explore!")
-        print(f"{'='*60}\n")
+        # Start async generation in background
+        asyncio.create_task(
+            generate_world_async(world_id, request.grid_size, request.npc_count)
+        )
 
         return {
             "id": world_id,
@@ -281,7 +300,7 @@ async def create_world(request: CreateWorldRequest):
             "theme": request.theme,
             "art_style": request.art_style,
             "grid_size": request.grid_size,
-            "total_treasures": request.grid_size,
+            "generation_status": "GENERATING",
             "created_at": db_world.created_at.isoformat(),
             "npc_count": request.npc_count,
         }
@@ -290,6 +309,159 @@ async def create_world(request: CreateWorldRequest):
         session.rollback()
         print(f"Error creating world: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to create world: {str(e)}")
+    finally:
+        session.close()
+
+
+async def generate_world_async(world_id: str, grid_size: int, npc_count: int):
+    """Background task to generate world content."""
+    import asyncio
+
+    from faker import Faker
+
+    fake = Faker()
+    session = SessionLocal()
+
+    try:
+        from database.models import DBWorld, DBWorldGenerationTask
+
+        # Update progress helper
+        def update_progress(step: str, percent: int, rooms_done: int = 0):
+            task = (
+                session.query(DBWorldGenerationTask)
+                .filter_by(world_id=world_id)
+                .first()
+            )
+            if task:
+                task.current_step = step
+                task.progress_percent = percent
+                task.generated_rooms = rooms_done
+                session.commit()
+            print(f"[PROGRESS] {world_id}: {percent}% - {step}")
+
+        update_progress("Creating labyrinth structure...", 5)
+
+        # Initialize game manager
+        game_manager = get_or_create_game_manager(world_id)
+
+        # Calculate max_rooms
+        max_rooms = grid_size * grid_size
+
+        # Create organic labyrinth with progress callbacks
+        update_progress("Generating room descriptions...", 10)
+
+        # Run synchronous world generation in thread pool
+        # NOTE: grid_size is passed so treasures are prepared BEFORE images
+        await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: game_manager.world_generator.create_organic_labyrinth(
+                max_rooms,
+                progress_callback=lambda step, pct, rooms: update_progress(
+                    step, pct, rooms
+                ),
+                grid_size=grid_size,
+            ),
+        )
+
+        update_progress("Finalizing treasures...", 90)
+
+        # Finalize treasure DB records (treasures were prepared during labyrinth generation)
+        await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: game_manager.world_generator.place_treasures(grid_size, session),
+        )
+
+        # Update world with treasure count
+        db_world = session.query(DBWorld).filter_by(id=world_id).first()
+        db_world.total_treasures = grid_size
+        session.commit()
+
+        # Create NPCs
+        if npc_count > 0:
+            update_progress(f"Spawning {npc_count} NPCs...", 95)
+            for i in range(npc_count):
+                npc_name = fake.user_name() + "_" + str(fake.random_number(digits=3))
+                game_manager.create_player(npc_name, PlayerType.NPC)
+                print(f"   ✓ {npc_name}")
+
+        # Mark as complete
+        update_progress("Complete!", 100)
+        db_world.generation_status = "COMPLETE"
+
+        task = session.query(DBWorldGenerationTask).filter_by(world_id=world_id).first()
+        if task:
+            task.status = "COMPLETE"
+            task.completed_at = datetime.now()
+
+        session.commit()
+
+        print(f"{'='*60}")
+        print(f"✅ World '{db_world.name}' ready to explore!")
+        print(f"{'='*60}\n")
+
+        # Flush all LLM logs to database
+        from llm.request_logger import flush_all_llm_logs
+
+        flush_all_llm_logs(session)
+
+        # Clean up task tracking
+        if world_id in generation_tasks:
+            del generation_tasks[world_id]
+
+    except Exception as e:
+        print(f"Error generating world {world_id}: {e}")
+        import traceback
+
+        traceback.print_exc()
+
+        # Mark as failed
+        try:
+            db_world = session.query(DBWorld).filter_by(id=world_id).first()
+            if db_world:
+                db_world.generation_status = "FAILED"
+
+            task = (
+                session.query(DBWorldGenerationTask)
+                .filter_by(world_id=world_id)
+                .first()
+            )
+            if task:
+                task.status = "FAILED"
+                task.error_message = str(e)
+
+            session.commit()
+        except:
+            pass
+
+        if world_id in generation_tasks:
+            del generation_tasks[world_id]
+
+    finally:
+        session.close()
+
+
+@app.get("/api/worlds/{world_id}/generation-status")
+async def get_world_generation_status(world_id: str):
+    """Get the generation progress for a world."""
+    session = SessionLocal()
+    try:
+        from database.models import DBWorld, DBWorldGenerationTask
+
+        world = session.query(DBWorld).filter_by(id=world_id).first()
+        if not world:
+            raise HTTPException(status_code=404, detail="World not found")
+
+        task = session.query(DBWorldGenerationTask).filter_by(world_id=world_id).first()
+
+        return {
+            "world_id": world_id,
+            "status": world.generation_status,
+            "progress_percent": task.progress_percent if task else 0,
+            "current_step": task.current_step if task else "Unknown",
+            "total_rooms": task.total_rooms if task else 0,
+            "generated_rooms": task.generated_rooms if task else 0,
+            "error_message": task.error_message if task else None,
+        }
     finally:
         session.close()
 
@@ -315,6 +487,28 @@ async def create_player(request: CreatePlayerRequest):
         raise HTTPException(
             status_code=400, detail=f"Player {request.player_name} already exists"
         )
+
+    # Generate initial narration for starting room (only for human players and if TTS enabled)
+    if player_type == PlayerType.HUMAN:
+        from config.constants import TTSConstants
+
+        if TTSConstants.ENABLED:
+            try:
+                starting_room = game_manager.world_generator.get_room(player.room_id)
+                if starting_room:
+                    # Use room description as initial narration
+                    narration_text = starting_room.description
+
+                    # Generate and save initial narration
+                    session = SessionLocal()
+                    await generate_and_save_narration(
+                        player.id, starting_room.id, narration_text, "ENTRY", session
+                    )
+                    session.close()
+
+                    print(f"[NARRATION] Generated initial narration for {player.name}")
+            except Exception as e:
+                print(f"[NARRATION] Failed to generate initial narration: {e}")
 
     return {
         "id": player.id,
@@ -395,12 +589,20 @@ async def get_game_state(player_id: str):
             {"name": p.name, "description": p.description} for p in players_in_room
         ]
 
-        # Get recent events in this room (last 10 events)
+        # Get recent events: room events + all DM narrations for the world
+        from sqlalchemy import or_
+
         recent_events = (
             session.query(DBGameEvent)
-            .filter(DBGameEvent.room_id == current_room.id)
+            .filter(
+                DBGameEvent.world_id == db_player.world_id,
+                or_(
+                    DBGameEvent.room_id == current_room.id,  # Current room events
+                    DBGameEvent.actor_name == "DM",  # All DM narrations (any room)
+                ),
+            )
             .order_by(DBGameEvent.timestamp.desc())
-            .limit(10)
+            .limit(15)
             .all()
         )
 
@@ -500,6 +702,9 @@ async def get_game_state(player_id: str):
             for item in inventory_items
         ]
 
+        # V3: No UI treasure hints - rely on DM storytelling in descriptions
+        hints = []
+
         has_won = (collected_treasures == total_treasures) and total_treasures > 0
 
         return {
@@ -525,6 +730,7 @@ async def get_game_state(player_id: str):
                 "has_won": has_won,
             },
             "inventory": inventory,
+            "treasure_hints": hints,
         }
 
     finally:
@@ -800,16 +1006,18 @@ async def handle_interact_action(
             session, player_id, current_room.id, description
         )
 
-        if collected_item:
-            # Item found and collected!
-            narration = f"You {description} and discover the {collected_item['name']}! ({collected_item['collected']}/{collected_item['total']} treasures found)"
+        # Track if we found treasure (narration happens first, then room modification)
+        treasure_found = collected_item is not None
+        treasure_result = None
 
-            await generate_and_save_narration(
-                player_id, current_room.id, narration, "ITEM_COLLECTED", session
-            )
-
-            # Check win condition
+        if treasure_found:
+            # STEP 1: Generate treasure discovery narration FIRST
             if collected_item["has_won"]:
+                # Last treasure - combine discovery + win message
+                narration = f"You {description} and discover the {collected_item['name']}! That's all {collected_item['total']} treasures! Congratulations, you've conquered the dungeon!"
+                narration_type = "WIN"
+
+                # Update world completion status
                 from database.models import DBWorld
 
                 world = (
@@ -818,15 +1026,17 @@ async def handle_interact_action(
                 world.is_complete = True
                 world.completed_at = datetime.now()
                 session.commit()
+            else:
+                # Not last treasure - announce the find
+                narration = f"You {description} and discover the {collected_item['name']}! {collected_item['collected']} of {collected_item['total']} treasures found."
+                narration_type = "ITEM_COLLECTED"
 
-                win_narration = "🎉 You've found all the treasures! The dungeon's secrets are now yours!"
-                await generate_and_save_narration(
-                    player_id, current_room.id, win_narration, "WIN", session
-                )
+            await generate_and_save_narration(
+                player_id, current_room.id, narration, narration_type, session
+            )
+            print(f"[NARRATION] Treasure: {narration}")
 
-            session.close()
-
-            return {
+            treasure_result = {
                 "success": True,
                 "message": f"🎉 You found the {collected_item['name']}!",
                 "item_collected": True,
@@ -837,13 +1047,15 @@ async def handle_interact_action(
 
         session.close()
 
-        # NO ITEM - Continue with normal room interaction
+        # STEP 2: Continue with room interaction (even if treasure was found)
+        # This allows the room to change after discovering treasure
         room_description_before = current_room.description
 
-        # STEP 1: Narrate the ACTION itself (only if TTS enabled)
+        # Narrate the ACTION itself (only if TTS enabled AND no treasure was found)
+        # If treasure was found, we already narrated it
         from config.constants import TTSConstants
 
-        if TTSConstants.ENABLED:
+        if TTSConstants.ENABLED and not treasure_found:
             try:
                 players_map = game_manager.get_players()
                 npcs_present = [
@@ -867,7 +1079,7 @@ async def handle_interact_action(
             except Exception as e:
                 print(f"[NARRATION] Failed to narrate action: {e}")
 
-        # STEP 2: Execute the action
+        # STEP 3: Execute the room interaction
         # Override the controller's action prompt with the user's description
         original_controller = player.controller
 
@@ -887,17 +1099,25 @@ async def handle_interact_action(
         # Restore original controller
         player.controller = original_controller
 
+        # **CRITICAL**: Commit session to persist any room changes (description + image)
+        game_manager.session.commit()
+
         if success:
-            # STEP 3: Check if room changed and narrate the RESULT (only if TTS enabled)
+            # STEP 4: Check if room changed and narrate the RESULT (only if TTS enabled)
             if TTSConstants.ENABLED:
                 try:
                     current_room = game_manager.world_generator.get_room(player.room_id)
                     room_description_after = current_room.description
 
-                    # If room description changed, narrate the change
+                    # If room description changed, generate custom narration describing the change
                     if room_description_before != room_description_after:
                         change_narration = (
-                            f"The room shifts in response to your action."
+                            narration_service.generate_room_change_narration(
+                                player=player,
+                                action_description=description,
+                                before_description=room_description_before,
+                                after_description=room_description_after,
+                            )
                         )
 
                         session = SessionLocal()
@@ -914,11 +1134,18 @@ async def handle_interact_action(
                 except Exception as e:
                     print(f"[NARRATION] Failed to narrate room change: {e}")
 
+            # If treasure was found, return treasure result (includes the discovery info)
+            if treasure_result:
+                return treasure_result
+
             return {
                 "success": True,
                 "message": f"You interact: {description}",
             }
         else:
+            # If treasure was found but room interaction failed, still return treasure result
+            if treasure_result:
+                return treasure_result
             return {
                 "success": False,
                 "message": "Failed to interact",
@@ -998,6 +1225,43 @@ async def handle_observe_action(game_manager: GameManager, player_id: str):
 # ============================================================================
 
 
+def fuzzy_match_treasure_hint(interaction_text: str, hint: str) -> bool:
+    """
+    Improved treasure hint matching with tokenization and fuzzy logic.
+
+    Returns True if interaction likely refers to the hint object.
+    """
+    import re
+
+    # Normalize: lowercase, remove punctuation
+    def normalize(text):
+        return re.sub(r"[^a-z0-9\s]", "", text.lower())
+
+    interaction_norm = normalize(interaction_text)
+    hint_norm = normalize(hint)
+
+    # Tokenize into words
+    interaction_tokens = set(interaction_norm.split())
+    hint_tokens = set(hint_norm.split())
+
+    # Match if:
+    # 1. All hint tokens present in interaction (subset match)
+    if hint_tokens.issubset(interaction_tokens):
+        return True
+
+    # 2. Hint phrase is substring of interaction
+    if hint_norm in interaction_norm:
+        return True
+
+    # 3. 70%+ token overlap for multi-word hints
+    if len(hint_tokens) > 0:
+        overlap = len(hint_tokens & interaction_tokens)
+        if overlap / len(hint_tokens) >= 0.7:
+            return True
+
+    return False
+
+
 async def check_and_collect_item(
     session, player_id: str, room_id: str, interaction_text: str
 ) -> Optional[dict]:
@@ -1025,15 +1289,9 @@ async def check_and_collect_item(
     if not items:
         return None
 
-    # Fuzzy match: check if interaction contains item hint
-    interaction_lower = interaction_text.lower()
-
+    # Use improved fuzzy matching
     for item in items:
-        hint_lower = item.interaction_hint.lower()
-
-        # Match if interaction contains the hint or vice versa
-        # e.g., "open the wooden chest" matches hint "wooden chest"
-        if hint_lower in interaction_lower or interaction_lower in hint_lower:
+        if fuzzy_match_treasure_hint(interaction_text, item.interaction_hint):
             # COLLECT THE ITEM!
             item.is_collected = True
             item.collected_by_player_id = player_id
@@ -1082,53 +1340,57 @@ async def check_and_collect_item(
 @app.get("/api/narration/{player_id}/latest")
 async def get_latest_narration(player_id: str):
     """
-    Get recent narrations for a player (last 10 seconds).
-    Returns all narrations created recently to support sequential playback.
+    Get the single most recent narration for a player.
+    Returns only the latest narration to avoid duplication.
     """
     session = SessionLocal()
     try:
-        from datetime import timedelta
-
         from database.models import DBNarration
 
-        # Get narrations from last 10 seconds
-        recent_time = datetime.now() - timedelta(seconds=10)
-        narrations = (
+        # Get only the most recent narration
+        latest_narration = (
             session.query(DBNarration)
-            .filter(
-                DBNarration.player_id == player_id,
-                DBNarration.created_at >= recent_time,
-            )
-            .order_by(
-                DBNarration.created_at.asc()
-            )  # Oldest first for sequential playback
-            .all()
+            .filter(DBNarration.player_id == player_id)
+            .order_by(DBNarration.created_at.desc())
+            .first()
         )
 
-        if not narrations:
-            return {"narrations": []}
+        if not latest_narration:
+            return {"narration": None}
 
-        narration_list = []
-        for narration in narrations:
-            audio_url = None
-            if narration.audio_filepath:
-                filename = Path(narration.audio_filepath).name
-                audio_url = f"/narrations/{filename}"
+        audio_url = None
+        if latest_narration.audio_filepath:
+            filename = Path(latest_narration.audio_filepath).name
+            audio_url = f"/narrations/{filename}"
 
-            narration_list.append(
-                {
-                    "id": narration.id,
-                    "text": narration.narration_text,
-                    "type": narration.narration_type,
-                    "audio_url": audio_url,
-                    "created_at": narration.created_at.isoformat(),
-                }
-            )
-
-        return {"narrations": narration_list}
+        return {
+            "narration": {
+                "id": latest_narration.id,
+                "text": latest_narration.narration_text,
+                "type": latest_narration.narration_type,
+                "audio_url": audio_url,
+                "created_at": latest_narration.created_at.isoformat(),
+            }
+        }
 
     finally:
         session.close()
+
+
+def get_tts_speed_for_text(text: str) -> float:
+    """
+    Calculate appropriate TTS speed based on text length.
+
+    Returns speed multiplier (1.0 = normal, 1.3 = faster).
+    """
+    word_count = len(text.split())
+
+    if word_count <= 20:
+        return 1.0  # Normal speed for short narrations
+    elif word_count <= 50:
+        return 1.15  # Slightly faster for medium narrations
+    else:
+        return 1.3  # Faster for long descriptions
 
 
 async def generate_and_save_narration(
@@ -1140,10 +1402,11 @@ async def generate_and_save_narration(
 ) -> str:
     """
     Generate TTS audio for narration and save to database.
+    Also creates a DBGameEvent entry so narrations appear in event log.
     Returns the audio filepath.
     """
     from config.constants import TTSConstants
-    from database.models import DBNarration
+    from database.models import DBGameEvent, DBNarration, DBPlayer
 
     audio_filepath = None
 
@@ -1162,11 +1425,14 @@ async def generate_and_save_narration(
         audio_filename = f"narration_{player_id}_{timestamp}.mp3"
         audio_filepath = narrations_dir / audio_filename
 
-        # Generate audio using TTS
+        # Calculate appropriate speed based on text length
+        speed = get_tts_speed_for_text(narration_text)
+
+        # Generate audio using TTS with dynamic speed
         try:
             tts = create_tts_module()
-            tts.save_to_file(narration_text, str(audio_filepath))
-            print(f"[NARRATION] Generated audio: {audio_filepath}")
+            tts.save_to_file(narration_text, str(audio_filepath), speed=speed)
+            print(f"[NARRATION] Generated audio: {audio_filepath} (speed: {speed}x)")
         except Exception as e:
             print(f"[NARRATION] TTS generation failed: {e}")
             audio_filepath = None
@@ -1184,7 +1450,27 @@ async def generate_and_save_narration(
     )
 
     session.add(db_narration)
+
+    # Also create a DBGameEvent entry so narrations appear in event log
+    db_player = session.query(DBPlayer).filter_by(id=player_id).first()
+    if db_player:
+        db_event = DBGameEvent(
+            world_id=db_player.world_id,
+            room_id=room_id,
+            actor_id=player_id,
+            actor_name="DM",  # Dungeon Master narrations
+            action_type=f"NARRATION_{narration_type}",
+            content=narration_text,
+            timestamp=datetime.now(),
+        )
+        session.add(db_event)
+
     session.commit()
+
+    # Flush any pending LLM logs after gameplay actions
+    from llm.request_logger import flush_all_llm_logs
+
+    flush_all_llm_logs(session)
 
     return str(audio_filepath) if audio_filepath else None
 

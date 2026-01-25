@@ -31,12 +31,12 @@ CONVERSION RULES:
    - Materials: "with visible grain texture", "sharp distinct reflections", "visible brushstrokes"
    - Lighting: "with visible rays", "with defined edges", "casting long sharp shadows"
 5. Keep it as ONE continuous paragraph
-6. Emphasize that it needs to render a perspective inside a physical ROOM.
+6. Render a first-person perspective within this location/area/space (can be indoor room, outdoor clearing, tunnel, etc.)
 
 INPUT TO CONVERT:
 Art Style: ${art_style}
-Room Name: ${room_name}
-Room Description: ${room_description}
+Location Name: ${room_name}
+Location Description: ${room_description}
 ${player_info}
 
 OUTPUT (dense narrative format, single paragraph, 100-150 words):"""
@@ -81,6 +81,40 @@ ${interaction}
 Update the description of the room to reflect this interaction. Do not mention the player or the event specifically.
 
 Current room description: ${current_description}"""
+    )
+
+    # Decision prompt: Does this interaction visually modify the room?
+    INTERACTION_VISUAL_IMPACT = Template(
+        """Does this player action visually/physically change the room's appearance?
+
+PLAYER ACTION: ${interaction}
+CURRENT ROOM: ${room_description}
+
+VISUAL CHANGE means:
+- Physical alteration (opening doors, lighting fires, breaking objects, moving furniture)
+- Adding/removing visible elements
+- Changing lighting or atmosphere significantly
+
+NOT VISUAL CHANGE:
+- Reading, examining, looking at something
+- Listening, smelling, touching without effect
+- Talking, thinking, remembering
+- Minor interactions that don't alter the scene
+
+Respond with ONLY one word: YES or NO"""
+    )
+
+    # Minimal description update for visual changes (keep scene consistent)
+    ROOM_VISUAL_UPDATE = Template(
+        """The player performed this action: ${interaction}
+
+CRITICAL: Make a MINIMAL update to the room description to reflect ONLY what changed.
+Keep 90% of the original description intact - just modify the specific element affected.
+
+Original description:
+${current_description}
+
+Updated description (keep it nearly identical, just reflect the change):"""
     )
 
     # Memory synthesis prompts - SPECIFIC STRUCTURED FORMAT
@@ -160,38 +194,47 @@ Think D&D session notes, not novel writing.
 
     # World generation prompts (used by WorldGenerator) - CONCISE D&D style
     WORLD_GEN_ROOM_NAME = Template(
-        """Generate a short, evocative name for this D&D room/location.
+        """Generate a short, evocative name for this D&D location.
 
 ${adjacent_rooms}
 
-CRITICAL: Your response must be ONLY the room name. No explanations, no parentheses, no additional text.
+CRITICAL: Your response must be ONLY the location name. No explanations, no parentheses, no additional text.
+
+LOCATION TYPES (be varied, not just indoor rooms):
+- Indoor: chambers, halls, vaults, corridors, cellars, throne rooms
+- Outdoor: clearings, groves, cliffs, ruins, bridges, camps
+- Transitional: archways, passages, thresholds, cave mouths, stairways
+- Natural: pools, grottos, chasms, ledges, nests
 
 Requirements:
 - 2-4 words maximum
 - Be creative and unique
 - Evocative and atmospheric
-- Can relate to adjacent rooms OR be completely different
+- Can relate to adjacent areas OR be completely different
+- NOT a huge region (keep it a single explorable area/space)
 
-Your room name (2-4 words):"""
+Your location name (2-4 words):"""
     )
 
     WORLD_GEN_ROOM_DESCRIPTION = Template(
-        """Describe this ${word_count}-word room for a D&D game:
-Room: ${room_name}
+        """Describe this ${word_count}-word location for a D&D game:
+Location: ${room_name}
 Exits: ${room_paths}
 
 ${adjacent_rooms}
 
-CRITICAL: Your response must be ONLY the pure description text. DO NOT include the room name.
+CRITICAL: Your response must be ONLY the pure description text. DO NOT include the location name.
 
-IMPORTANT: Create a room with DRAMATIC progression and its own unique character.
-- If adjacent rooms describe a biome, STAY in that biome BUT show DRAMATIC changes within it
-- Each room should feel like a SIGNIFICANT step deeper/forward, not just "more of the same"
+IMPORTANT: Create a location (room, area, clearing, passage, etc.) with DRAMATIC progression:
+- NOT limited to indoor rooms - can be outdoor spaces, natural formations, transitional areas
+- Keep it a single explorable AREA (not a vast region or entire forest)
+- If adjacent locations describe a biome, STAY in that biome BUT show DRAMATIC changes within it
+- Each location should feel like a SIGNIFICANT step deeper/forward, not just "more of the same"
 - Include sensory details (see/hear/smell/feel) that INTENSIFY or SHIFT
-- ONE memorable feature that's DIFFERENT from adjacent rooms
+- ONE memorable feature that's DIFFERENT from adjacent locations
 - Show evolution, escalation, or transformation within the biome
 
-Your description (${word_count} words max, NO room name):"""
+Your description (${word_count} words max, NO location name):"""
     )
 
     WORLD_GEN_ROOM_CONNECTION = Template(
@@ -255,14 +298,11 @@ Room: ${room_description}
 
 Recent narrations (don't repeat): ${recent_narrations}
 
-CRITICAL: ONE SHORT SENTENCE ONLY. Emphasize recognition or change. Second person ("You").
+CRITICAL: 1 OR 2 SHORT SENTENCE ONLY. Emphasize recognition, change, and that the player has entered the room. Second person ("You"). Avoid similar phrasing as recent narrations.
 
-Examples:
-- "The musty air - instantly familiar."
-- "Something's different here."
-- "Back again, like you never left."
 
-Your narration (one short sentence):"""
+
+Your narration (1 or 2 short sentences):"""
     )
 
     VOICEOVER_FIRST_VISIT_NARRATION = Template(
@@ -280,6 +320,83 @@ Examples:
 - "Ancient symbols cover every surface."
 
 Your narration (one short sentence):"""
+    )
+
+    VOICEOVER_ROOM_CHANGE_NARRATION = Template(
+        """Narrate how the room changed after the player's action.
+
+Action: ${action_description}
+
+BEFORE: ${before_description}
+
+AFTER: ${after_description}
+
+Recent narrations (don't repeat): ${recent_narrations}
+
+CRITICAL: ONE SHORT SENTENCE ONLY. Describe the CHANGE - what shifted, opened, appeared, or transformed. Second person ("You see/hear/feel").
+
+Examples:
+- "Stone grinds against stone as a hidden passage opens."
+- "The flames flicker and die, revealing ancient symbols beneath."
+- "Crystal shards fall from the ceiling, tinkling like bells."
+
+Your narration (one short sentence, focus on the CHANGE):"""
+    )
+
+    # Themed treasure name generation
+    TREASURE_NAME_THEMED = Template(
+        """Generate a treasure name that fits BOTH the room and world theme.
+
+WORLD THEME: ${world_theme}
+ROOM NAME: ${room_name}
+ROOM DESCRIPTION: ${room_description}
+
+The treasure should feel like it BELONGS in this specific room.
+NOT generic mystical objects - something specific to this location.
+
+Examples:
+- Observatory + Space Station → "Captain's Navigation Crystal"
+- Library + Haunted Manor → "Grimoire of the Fallen Lord"
+- Kitchen + Pirate Ship → "Chef's Golden Ladle"
+- Garden + Fairy Tale → "Enchanted Rose Seed"
+- Throne Room + Medieval Castle → "Crown of the Last King"
+- Laboratory + Sci-Fi → "Prototype Energy Core"
+
+CRITICAL: Return ONLY the treasure name (2-5 words). No quotes, no explanation.
+
+Treasure name:"""
+    )
+
+    # Description enhancement for treasure rooms
+    ENHANCE_DESCRIPTION_FOR_TREASURE = Template(
+        """Rewrite this room description to subtly emphasize one specific object that could hide a treasure.
+
+ORIGINAL DESCRIPTION:
+${original_description}
+
+TREASURE TO HIDE: ${treasure_name}
+
+INSTRUCTIONS:
+1. Keep 80% of the original description intact
+2. Add OR emphasize ONE object that could logically contain/hide the treasure
+3. Make that object STAND OUT through vivid, curious description
+4. Do NOT mention "treasure" or make it obvious
+5. The object should feel naturally part of the scene but NOTABLE
+6. At the END, add the hiding object in brackets like: [chest]
+
+HIDING OBJECT TYPES (choose one that fits):
+- Containers: chest, box, urn, cabinet, drawer, pouch, satchel
+- Surfaces: pedestal, altar, table, shelf, throne, desk
+- Hidden spots: loose brick, hollow tree, false floor, secret compartment
+- Natural: rock, pool, roots, crystal, nest, shell
+
+GOOD EXAMPLE:
+BEFORE: "Dusty shelves line the walls. A faded tapestry hangs in the corner."
+AFTER: "Dusty shelves line the walls. A faded tapestry hangs in the corner. Beneath the far window, an ornate wooden chest sits half-open, its brass hinges gleaming despite years of neglect. [chest]"
+
+The player should read this and think "that object sounds interesting!"
+
+Rewrite (end with [object_name]):"""
     )
 
 

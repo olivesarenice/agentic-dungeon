@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from config.enums import PlayerType
 from controllers import AIController, HumanController
-from llm import create_llm_module
+from llm import create_fast_llm
 from models import Player
 from rendering import CLIRenderer
 from repositories import PlayerRepository
@@ -118,7 +118,8 @@ class GameManager:
         if player_type == PlayerType.HUMAN:
             controller = HumanController()
         elif player_type == PlayerType.NPC:
-            npc_llm = create_llm_module(Player.DEFAULT_LLM_SYSTEM_PROMPT)
+            # Use FAST model for NPC decision-making
+            npc_llm = create_fast_llm(Player.DEFAULT_LLM_SYSTEM_PROMPT)
             controller = AIController(npc_llm)
         else:
             raise ValueError(f"Unknown player type: {player_type}")

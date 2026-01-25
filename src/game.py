@@ -1,12 +1,13 @@
 import random
 from typing import Optional
 
-from config import MAX_ROOM_PATHS, PAUSE, STARTING_ROOM_COORDS, GameConfigs
 from constants import GameConstants
-from controllers import AIController, HumanController
 from enums import ActionType, DecisionType, Direction, PlayerType
 from helpers import iso_ts
-from llm import LLMModule, create_llm_module
+
+from config import MAX_ROOM_PATHS, PAUSE, STARTING_ROOM_COORDS, GameConfigs
+from controllers import AIController, HumanController
+from llm import LLMModule, create_quality_llm
 from models import GameEvent, Player, PlayerEntry, Room, RoomEntry
 
 
@@ -33,7 +34,8 @@ class Game:
         # Keep track of room IDs for efficient random selection
         self._room_ids: list[str] = []
 
-        self.dm_generator_module: LLMModule = create_llm_module(
+        # Use QUALITY model for creative room generation
+        self.dm_generator_module: LLMModule = create_quality_llm(
             "You are the Dungeon Master overseeing a text-based exploration game. There are multiple players exploring a world made up of interconnected rooms. Your task is to generate descriptions for newly created rooms based on their connections and paths. Do not mention anything about the players themselves."
         )
 
@@ -267,7 +269,8 @@ class Game:
             controller = HumanController()
         elif player_type == PlayerType.NPC:
             # Create LLM module for NPC
-            npc_llm = create_llm_module(Player.DEFAULT_LLM_SYSTEM_PROMPT)
+            # Use FAST model for NPC decision-making
+            npc_llm = create_fast_llm(Player.DEFAULT_LLM_SYSTEM_PROMPT)
             controller = AIController(player_name, npc_llm)
         else:
             raise ValueError(f"Unknown player type: {player_type}")

@@ -15,7 +15,7 @@ from database.models import (
     DBPlayerKnownPlayer,
     DBPlayerKnownRoom,
 )
-from llm import create_llm_module
+from llm import create_fast_llm
 from models import Memory, Player, PlayerEntry, RoomEntry
 
 
@@ -280,7 +280,8 @@ class PlayerRepository:
         if player_type == PlayerType.HUMAN:
             controller = HumanController()
         elif player_type == PlayerType.NPC:
-            llm_module = create_llm_module(Player.DEFAULT_LLM_SYSTEM_PROMPT)
+            # Use FAST model for NPC decision-making
+            llm_module = create_fast_llm(Player.DEFAULT_LLM_SYSTEM_PROMPT)
             controller = AIController(llm_module, player=player)
         else:
             raise ValueError(f"Unknown player type: {player_type}")

@@ -239,29 +239,57 @@ class TurnSystem:
                 )
             )
 
-            # Update room description to reflect interaction
-            prompt = PromptTemplates.ROOM_INTERACTION_UPDATE.substitute(
-                interaction=action_prompt, current_description=current_room.description
+            # STEP 1: Check if interaction visually modifies the room
+            visual_check_prompt = PromptTemplates.INTERACTION_VISUAL_IMPACT.substitute(
+                interaction=action_prompt, room_description=current_room.description
             )
-            dm_description = self.world_generator.dm_generator_module.get_response(
-                prompt
+            visual_response = (
+                self.world_generator.dm_generator_module.get_response(
+                    visual_check_prompt, temperature=0.1
+                )
+                .strip()
+                .upper()
             )
+
+            should_modify_image = visual_response.startswith("YES")
             print(
-                f"\033[92mRoom {current_room.name} updated description:\nFROM = {current_room.description}\nTO = {dm_description}\033[0m\n"
+                f"[VISUAL CHECK] Action: '{action_prompt}' → Image modification: {should_modify_image}"
             )
 
-            current_room.update_description(dm_description)
+            if should_modify_image:
+                # STEP 2: Use MINIMAL update prompt for visual changes
+                update_prompt = PromptTemplates.ROOM_VISUAL_UPDATE.substitute(
+                    interaction=action_prompt,
+                    current_description=current_room.description,
+                )
+                dm_description = self.world_generator.dm_generator_module.get_response(
+                    update_prompt
+                )
+                print(
+                    f"\033[92mRoom {current_room.name} VISUAL update:\nFROM = {current_room.description}\nTO = {dm_description}\033[0m\n"
+                )
 
-            # Regenerate room image using previous image as reference for continuity
-            reference_image_path = (
-                current_room.image_filepath if current_room.image_filepath else None
-            )
-            self.world_generator._generate_room_scene_image(
-                current_room, reference_image_path
-            )
+                current_room.update_description(dm_description)
 
-            # **CRITICAL**: Persist updated room (description + new image) to database
-            self.world_generator.room_repo.update(current_room)
+                # STEP 3: Regenerate room image using previous image as STRONG reference
+                reference_image_path = (
+                    current_room.image_filepath if current_room.image_filepath else None
+                )
+                if reference_image_path:
+                    print(
+                        f"[IMAGE] Using reference image for consistency: {reference_image_path}"
+                    )
+                self.world_generator._generate_room_scene_image(
+                    current_room, reference_image_path
+                )
+
+                # **CRITICAL**: Persist updated room (description + new image) to database
+                self.world_generator.room_repo.update(current_room)
+            else:
+                # Non-visual interaction - no image regeneration needed
+                print(
+                    f"[IMAGE] Skipping image regeneration - interaction is non-visual"
+                )
 
         # Get witnesses (from current player locations)
         witnesses = [

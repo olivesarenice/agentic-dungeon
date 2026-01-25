@@ -17,7 +17,27 @@ from tenacity import (
     wait_exponential,
 )
 
+from llm.request_logger import LLMRequestLogger, RequestTimer, detect_error_status
+
 load_dotenv()
+
+# Global list to store pending log entries (flushed by caller when they have a DB session)
+_pending_llm_logs = []
+
+
+def get_pending_llm_logs():
+    """Get all pending LLM log entries and clear the list."""
+    global _pending_llm_logs
+    logs = _pending_llm_logs.copy()
+    _pending_llm_logs = []
+    return logs
+
+
+def add_pending_llm_log(log_entry):
+    """Add a log entry to the pending list."""
+    global _pending_llm_logs
+    _pending_llm_logs.append(log_entry)
+
 
 # Configure debug logging for LLM calls
 LLM_DEBUG = os.environ.get("LLM_DEBUG", "false").lower() == "true"
@@ -79,23 +99,48 @@ class GeminiProvider(LLMProvider):
     def __init__(
         self,
         system_prompt: str,
-        api_key: Optional[str] = None,
-        model_name: Optional[str] = None,
+        api_key: str,
+        model_name: str,
     ):
         super().__init__(system_prompt)
 
-        self.api_key = api_key or os.environ.get("GOOGLE_API_KEY")
-        if not self.api_key:
-            raise ValueError(
-                "API key not provided and GOOGLE_API_KEY environment variable not set."
-            )
+        # Use GEMINI_API_KEY for Vertex AI
+        # self.api_key = api_key
+        # if not self.api_key:
+        #     raise ValueError(
+        #         "API key not provided and GEMINI_API_KEY environment variable not set. "
+        #         "Make sure GOOGLE_GENAI_USE_VERTEXAI=True is also set for Vertex AI."
+        #     )
 
-        self.model_name = model_name or os.environ.get(
-            "GEMINI_MODEL_NAME", "gemini-2.0-flash-exp"
+        self.model_name = model_name
+
+        # Print environment variables
+        print("\n" + "=" * 80)
+        print("[GEMINI] Environment Variables:")
+        print(
+            f"  GEMINI_API_KEY: {'SET' if os.getenv('GEMINI_API_KEY') else 'NOT SET'}"
+        )
+        print(
+            f"  GOOGLE_CLOUD_LOCATION: {os.getenv('GOOGLE_CLOUD_LOCATION', 'NOT SET')}"
+        )
+        print(f"  LLM_PROVIDER: {os.getenv('LLM_PROVIDER', 'NOT SET')}")
+        print(f"  Model: {self.model_name}")
+        print("=" * 80)
+
+        self.client = genai.Client(
+            vertexai=True,
+            location="global",
+            # api_key=self.api_key,
+            http_options={"api_version": "v1"},
         )
 
-        # Initialize the new genai Client
-        self.client = genai.Client(api_key=self.api_key)
+        # Print client configuration
+        print(f"\n[GEMINI] Client Configuration:")
+        print(f"  Client type: {type(self.client).__name__}")
+        if hasattr(self.client, "location"):
+            print(f"  client.location: {self.client.location}")
+        print(f"  Location from env: {os.getenv('GOOGLE_CLOUD_LOCATION', 'NOT SET')}")
+        print("=" * 80 + "\n")
 
     def get_provider_name(self) -> str:
         return "gemini"
@@ -121,14 +166,27 @@ class GeminiProvider(LLMProvider):
             # Use provided temperature or default to 0.7
             temp = temperature if temperature is not None else 0.7
 
+            # Build config - only add thinking_config for models that support it
+            config_kwargs = {
+                "temperature": temp,
+                "system_instruction": self.system_prompt,
+            }
+
+            # Only add thinking_config for pro models that support it
+            # Flash models don't support thinking_config
+            if (
+                "pro" in self.model_name.lower()
+                and "flash" not in self.model_name.lower()
+            ):
+                config_kwargs["thinking_config"] = types.ThinkingConfig(
+                    thinking_level="low"
+                )
+
             # Use the new API with GenerateContentConfig
             response = self.client.models.generate_content(
                 model=self.model_name,
                 contents=prompt,
-                config=types.GenerateContentConfig(
-                    temperature=temp,
-                    system_instruction=self.system_prompt,
-                ),
+                config=types.GenerateContentConfig(**config_kwargs),
             )
 
             # Extract text from response
@@ -341,12 +399,12 @@ class LLMModule:
             self.provider = provider
         else:
             # Auto-detect provider from environment
-            provider_type = kwargs.get("provider_type", LLM_PROVIDER)
+            provider_type = kwargs.get("provider_type")
 
             if provider_type == "gemini":
                 self.provider = GeminiProvider(
                     system_prompt=system_prompt,
-                    api_key=kwargs.get("api_key"),
+                    api_key=os.getenv("GEMINI_API_KEY"),
                     model_name=kwargs.get("model_name"),
                 )
             elif provider_type == "ollama":
@@ -407,18 +465,46 @@ class LLMModule:
                 logger.debug(f"TEMPERATURE: {temperature}")
             logger.debug("-" * 80)
 
+        # Get model name for logging
+        model_name = getattr(self.provider, "model_name", None) or getattr(
+            self.provider, "model_id", "unknown"
+        )
+
         # Time the LLM request
         start_time = time.perf_counter()
-        response_text = self.provider.generate(prompt, temperature=temperature)
-        end_time = time.perf_counter()
+        response_text = None
+        error_msg = None
+        status = 200
 
-        # Calculate duration in milliseconds
-        duration_ms = (end_time - start_time) * 1000
+        try:
+            response_text = self.provider.generate(prompt, temperature=temperature)
+        except Exception as e:
+            error_msg = str(e)
+            status = detect_error_status(e)
+            # Re-raise after logging
+            raise
+        finally:
+            end_time = time.perf_counter()
+            duration_ms = int((end_time - start_time) * 1000)
 
-        # Log the response time
-        print(
-            f"[{self.provider.get_provider_name()}] Response time: {duration_ms:.2f}ms"
-        )
+            # Create log entry
+            log_entry = LLMRequestLogger.create_log_entry(
+                function_call="llm_get_response",
+                provider=self.provider.get_provider_name(),
+                model_id=model_name,
+                prompt=f"[SYSTEM]: {self.system_prompt[:500]}...\n[USER]: {prompt}",
+                status=status,
+                response=response_text,
+                retry_count=0,  # Retries handled internally by tenacity
+                latency_ms=duration_ms,
+                error_message=error_msg,
+            )
+            add_pending_llm_log(log_entry)
+
+            # Log the response time
+            print(
+                f"[{self.provider.get_provider_name()}] Response time: {duration_ms}ms"
+            )
 
         # Log the response if debug mode is enabled
         if LLM_DEBUG:
@@ -506,7 +592,7 @@ def create_fast_llm(system_prompt: str) -> LLMModule:
     Create an LLM module optimized for speed (fast, cheap model).
     Use for: extraction, summarization, simple transformations.
 
-    Default: us.amazon.nova-micro-v1:0
+    Uses LLM_PROVIDER to determine provider, then FAST_MODEL for the specific model.
 
     Args:
         system_prompt: The system-level instruction for the model.
@@ -514,17 +600,32 @@ def create_fast_llm(system_prompt: str) -> LLMModule:
     Returns:
         An instance of the LLMModule class configured with fast model.
     """
-    fast_model = os.environ.get(
-        "FAST_MODEL", "us.anthropic.claude-3-5-haiku-20241022-v1:0"
-    )
+    provider = LLM_PROVIDER
+    fast_model = os.environ.get("FAST_MODEL")
 
-    print(f"[FAST_LLM] Using model: {fast_model}")
+    print(f"[FAST_LLM] Provider: {provider}, Model: {fast_model}")
 
-    return LLMModule(
-        system_prompt,
-        provider_type="bedrock",
-        model_id=fast_model,
-    )
+    # Use LLM_PROVIDER to determine which provider to use
+    if provider == "gemini":
+        return LLMModule(
+            system_prompt,
+            provider_type="gemini",
+            model_name=fast_model,
+        )
+    elif provider == "bedrock":
+        return LLMModule(
+            system_prompt,
+            provider_type="bedrock",
+            model_id=fast_model,
+        )
+    elif provider == "ollama":
+        return LLMModule(
+            system_prompt,
+            provider_type="ollama",
+            model_name=fast_model,
+        )
+    else:
+        raise ValueError(f"Unsupported LLM_PROVIDER: {provider}")
 
 
 def create_quality_llm(system_prompt: str) -> LLMModule:
@@ -532,7 +633,7 @@ def create_quality_llm(system_prompt: str) -> LLMModule:
     Create an LLM module optimized for quality (thinking model).
     Use for: creative generation, new descriptions, complex reasoning.
 
-    Default: us.anthropic.claude-3-5-haiku-20241022-v1:0
+    Uses LLM_PROVIDER to determine provider, then QUALITY_MODEL for the specific model.
 
     Args:
         system_prompt: The system-level instruction for the model.
@@ -540,44 +641,40 @@ def create_quality_llm(system_prompt: str) -> LLMModule:
     Returns:
         An instance of the LLMModule class configured with quality model.
     """
-    quality_model = os.environ.get(
-        "QUALITY_MODEL", "us.anthropic.claude-3-5-haiku-20241022-v1:0"
-    )
+    provider = LLM_PROVIDER
+    quality_model = os.environ.get("QUALITY_MODEL")
 
-    print(f"[QUALITY_LLM] Using model: {quality_model}")
+    print(f"[QUALITY_LLM] Provider: {provider}, Model: {quality_model}")
 
-    return LLMModule(
-        system_prompt,
-        provider_type="bedrock",
-        model_id=quality_model,
-    )
+    # Use LLM_PROVIDER to determine which provider to use
+    if provider == "gemini":
+        return LLMModule(
+            system_prompt,
+            provider_type="gemini",
+            model_name=quality_model,
+        )
+    elif provider == "bedrock":
+        return LLMModule(
+            system_prompt,
+            provider_type="bedrock",
+            model_id=quality_model,
+        )
+    elif provider == "ollama":
+        return LLMModule(
+            system_prompt,
+            provider_type="ollama",
+            model_name=quality_model,
+        )
+    else:
+        raise ValueError(f"Unsupported LLM_PROVIDER: {provider}")
 
 
 # --- Example Usage ---
 if __name__ == "__main__":
     provider = LLM_PROVIDER
     print(f"Running LLM module example (using {provider})...")
-
-    # Example configurations for each provider:
-    #
-    # For Gemini:
-    # export LLM_PROVIDER="gemini"
-    # export GOOGLE_API_KEY="your-api-key"
-    # export GEMINI_MODEL_NAME="gemini-2.5-flash"
-    #
-    # For Ollama:
-    # export LLM_PROVIDER="ollama"
-    # export OLLAMA_BASE_URL="http://localhost:11434"
-    # export OLLAMA_MODEL_NAME="qwen3:8b"
-    #
-    # For Bedrock:
-    # export LLM_PROVIDER="bedrock"
-    # export BEDROCK_MODEL_ID="us.anthropic.claude-sonnet-4-5-20250929-v1:0"
-    # export AWS_PROFILE="rai"
-    # export AWS_REGION="us-east-1"
-
     try:
-        translator_module = create_llm_module(
+        translator_module = create_fast_llm(
             system_prompt="You are a helpful assistant that translates English to French. "
             "Only provide the French translation and nothing else."
         )
@@ -588,7 +685,7 @@ if __name__ == "__main__":
         print(f"English: Hello, how are you?")
         print(f"French: {french_translation}")
 
-        poet_module = create_llm_module(
+        poet_module = create_quality_llm(
             system_prompt="You are a poet. You respond with a short, 2-line rhyming poem."
         )
 

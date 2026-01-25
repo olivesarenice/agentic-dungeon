@@ -598,9 +598,9 @@
                 const world = worldsWithPlayers.find(w => w.id === selectedWorldId);
 
                 if (world && world.player) {
-                    // Player exists - go directly to Vue game interface
+                    // Player exists - go directly to game
                     localStorage.setItem('playerId', world.player.id);
-                    window.location.href = '/vue/index.html';
+                    window.location.href = '/game.html';
                 } else {
                     // No player - show character creation
                     const response = await fetch(`${API_BASE}/api/worlds/${selectedWorldId}`);
@@ -732,9 +732,9 @@
 
                 const playerData = await response.json();
 
-                // Store player ID and redirect to Vue game interface
+                // Store player ID and redirect to game
                 localStorage.setItem('playerId', playerData.id);
-                window.location.href = '/vue/index.html';
+                window.location.href = '/game.html';
 
             } catch (error) {
                 document.getElementById('error-player').textContent = `Error: ${error.message}`;

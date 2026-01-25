@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agentic Dungeon</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+    <div id="app"></div>
+
+    <!-- Components -->
+    <script src="start-screen.js"></script>
+    <script src="app.js"></script>
+
+    <!-- Main App -->
+    <script>
+        const { createApp } = Vue;
+
+        const app = createApp({
+            data() {
+                return {
+                    currentView: 'start',
+                    faker: null
+                };
+            },
+            async mounted() {
+                const { faker } = await import('https://esm.sh/@faker-js/faker@8.4.1');
+                this.faker = faker;
+
+                const playerId = localStorage.getItem('playerId');
+                if (playerId) {
+                    this.currentView = 'game';
+                }
+            },
+            methods: {
+                goToGame() {
+                    this.currentView = 'game';
+                },
+                goToStart() {
+                    this.currentView = 'start';
+                    localStorage.removeItem('playerId');
+                }
+            },
+            template: `
+                <div>
+                    <start-screen v-if="currentView === 'start'" @start-game="goToGame" :faker="faker"></start-screen>
+                    <game-screen v-else-if="currentView === 'game'" @back-to-start="goToStart"></game-screen>
+                </div>
+            `
+        });
+
+        app.mount('#app');
+    </script>
+</body>
+
+</html>

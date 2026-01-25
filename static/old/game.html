@@ -12,10 +12,13 @@
             padding: 0;
         }
 
+        @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700;900&display=swap');
+
         body {
             background: #0a0a0a;
             color: #c9c9c9;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', sans-serif;
+            font-family: "Roboto", sans-serif;
+            font-weight: 400;
             font-size: 15px;
             line-height: 1.6;
             overflow: hidden;
@@ -46,20 +49,39 @@
             transition: opacity 0.8s ease;
         }
 
-        /* Game container */
+        /* Game container - LEFT SIDEBAR + CENTER CONTENT */
         .game-container {
             position: relative;
             z-index: 1;
             display: grid;
             grid-template-areas:
-                "map center status"
-                "map center movement"
-                "events center actions";
-            grid-template-columns: 320px 1fr 320px;
-            grid-template-rows: auto 1fr auto;
+                "sidebar center";
+            grid-template-columns: 320px 1fr;
             height: 100vh;
             gap: 15px;
             padding: 15px;
+        }
+
+        /* Left sidebar with stacked panels */
+        #sidebar {
+            grid-area: sidebar;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            overflow-y: auto;
+        }
+
+        #map-panel {
+            flex-shrink: 0;
+        }
+
+        #movement-panel {
+            flex-shrink: 0;
+        }
+
+        #events-panel {
+            flex: 1;
+            min-height: 200px;
         }
 
         /* Dark dungeon panels */
@@ -85,7 +107,76 @@
             padding-bottom: 10px;
         }
 
-        /* MAP */
+        /* STATUS - Top Left */
+        #status-panel {
+            grid-area: status;
+        }
+
+        .status-line {
+            padding: 10px 0;
+            border-bottom: 1px solid rgba(60, 50, 40, 0.2);
+            font-size: 14px;
+        }
+
+        .status-line strong {
+            color: #a89070;
+            font-weight: 600;
+        }
+
+        /* Treasure hints section */
+        .treasure-hints {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid rgba(80, 70, 60, 0.3);
+        }
+
+        .treasure-hints h4 {
+            color: #d4a857;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1.2px;
+            margin-bottom: 10px;
+        }
+
+        .hint-item {
+            padding: 10px 12px;
+            margin: 8px 0;
+            border-radius: 4px;
+            background: linear-gradient(135deg, rgba(212, 168, 87, 0.15), rgba(184, 134, 11, 0.1));
+            border: 1px solid rgba(212, 168, 87, 0.4);
+            border-left: 3px solid #d4a857;
+            box-shadow: 0 2px 8px rgba(212, 168, 87, 0.1);
+            font-size: 13px;
+            color: #e8d4a8;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .hint-item:hover {
+            background: linear-gradient(135deg, rgba(212, 168, 87, 0.25), rgba(184, 134, 11, 0.15));
+            border-color: rgba(212, 168, 87, 0.6);
+            box-shadow: 0 4px 12px rgba(212, 168, 87, 0.2);
+        }
+
+        .hint-icon {
+            font-size: 16px;
+            flex-shrink: 0;
+        }
+
+        .hint-text {
+            flex: 1;
+            font-style: italic;
+        }
+
+        .no-hints {
+            color: rgba(180, 180, 180, 0.4);
+            font-size: 12px;
+            font-style: italic;
+        }
+
+        /* MAP - Top Right */
         #map-panel {
             grid-area: map;
         }
@@ -136,159 +227,13 @@
             border: 1px solid rgba(80, 70, 60, 0.4);
         }
 
-        /* CENTER - now empty to show background */
-        #center-panel {
-            grid-area: center;
-            background: transparent;
-            pointer-events: none;
-        }
-
-        /* Room title at TOP of screen */
-        .room-title {
-            position: fixed;
-            top: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            z-index: 100;
-            font-size: 48px;
-            font-weight: 800;
-            color: #e8e8e8;
-            letter-spacing: 2px;
-            text-shadow: 0 2px 8px rgba(0, 0, 0, 0.95),
-                0 4px 16px rgba(0, 0, 0, 0.9),
-                0 0 40px rgba(140, 120, 90, 0.4);
-            padding: 12px 30px;
-            background: rgba(0, 0, 0, 0.7);
-            backdrop-filter: blur(10px);
-            border-radius: 8px;
-            border: 1px solid rgba(100, 80, 60, 0.3);
-            text-align: center;
-            max-width: 90%;
-        }
-
-        /* Room description at BOTTOM like subtitles */
-        .room-description {
-            position: fixed;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            z-index: 100;
-            font-size: 18px;
-            color: #e8e8e8;
-            max-width: 900px;
-            line-height: 1.7;
-            font-weight: 400;
-            text-align: center;
-            text-shadow: 0 2px 8px rgba(0, 0, 0, 0.95),
-                0 4px 12px rgba(0, 0, 0, 0.9);
-            padding: 15px 30px;
-            background: rgba(0, 0, 0, 0.85);
-            backdrop-filter: blur(12px);
-            border-radius: 6px;
-            border: 1px solid rgba(100, 80, 60, 0.3);
-        }
-
-        /* STATUS */
-        #status-panel {
-            grid-area: status;
-            max-height: 250px;
-        }
-
-        .status-line {
-            padding: 10px 0;
-            border-bottom: 1px solid rgba(60, 50, 40, 0.2);
-            font-size: 14px;
-        }
-
-        .status-line strong {
-            color: #a89070;
-            font-weight: 600;
-        }
-
-        /* MOVEMENT */
-        #movement-panel {
-            grid-area: movement;
-        }
-
-        .movement-grid {
-            display: grid;
-            grid-template-areas:
-                ". north ."
-                "west . east"
-                ". south .";
-            gap: 12px;
-            max-width: 280px;
-            margin: 0 auto;
-        }
-
-        .move-btn {
-            padding: 24px;
-            font-size: 15px;
-            font-weight: 600;
-        }
-
-        #btn-N {
-            grid-area: north;
-        }
-
-        #btn-S {
-            grid-area: south;
-        }
-
-        #btn-E {
-            grid-area: east;
-        }
-
-        #btn-W {
-            grid-area: west;
-        }
-
-        #btn-action-OBSERVE {
-            grid-area: 2 / 2 / 3 / 3;
-            /* Center position in the grid */
-        }
-
-        /* ACTIONS */
-        #actions-panel {
-            grid-area: actions;
-        }
-
-        .action-buttons {
-            display: grid;
-            grid-template-columns: 1fr 1fr 1fr;
-            gap: 10px;
-            margin-bottom: 15px;
-        }
-
-        .action-btn {
-            padding: 16px 12px;
-            font-size: 13px;
-        }
-
-        .action-btn.selected {
-            background: rgba(140, 120, 90, 0.5);
-            color: #ffffff;
-            font-weight: 600;
-            border-color: rgba(140, 120, 90, 0.8);
-            box-shadow: 0 4px 20px rgba(140, 120, 90, 0.3);
-        }
-
-        .command-input-area {
-            margin-top: 15px;
-        }
-
-        .command-input-area.hidden {
-            display: none;
-        }
-
-        /* EVENTS */
+        /* EVENTS - Bottom Left */
         #events-panel {
             grid-area: events;
-            max-height: 320px;
         }
 
         .events-log {
-            height: 270px;
+            height: 250px;
             overflow-y: auto;
             font-size: 13px;
         }
@@ -320,6 +265,265 @@
             border-left-color: #b05050;
         }
 
+        /* MOVEMENT - Bottom Right */
+        #movement-panel {
+            grid-area: movement;
+        }
+
+        /* INTERACT button in CENTER of movement grid */
+        .movement-grid {
+            display: grid;
+            grid-template-areas:
+                ". north ."
+                "west interact east"
+                ". south .";
+            gap: 12px;
+            max-width: 280px;
+            margin: 0 auto;
+        }
+
+        .move-btn {
+            padding: 19px;
+            /* 20% smaller: 24px * 0.8 = 19.2px */
+            font-size: 12px;
+            /* 20% smaller: 15px * 0.8 = 12px */
+            font-weight: 600;
+        }
+
+        #btn-N {
+            grid-area: north;
+        }
+
+        #btn-S {
+            grid-area: south;
+        }
+
+        #btn-E {
+            grid-area: east;
+        }
+
+        #btn-W {
+            grid-area: west;
+        }
+
+        #btn-interact {
+            grid-area: interact;
+            background: rgba(140, 120, 90, 0.3);
+            border: 2px solid rgba(140, 120, 90, 0.5);
+            font-size: 14px;
+            padding: 24px 12px;
+        }
+
+        #btn-interact:hover:not(:disabled) {
+            background: rgba(140, 120, 90, 0.5);
+            border-color: rgba(140, 120, 90, 0.8);
+            box-shadow: 0 4px 20px rgba(140, 120, 90, 0.4);
+        }
+
+        /* CENTER - empty to show background */
+        #center-panel {
+            grid-area: center;
+            background: transparent;
+            pointer-events: none;
+        }
+
+        /* Room title at TOP of screen */
+        .room-title {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 100;
+            font-family: "Roboto", sans-serif;
+            font-weight: 900;
+            font-size: 48px;
+            color: #e8e8e8;
+            letter-spacing: 2px;
+            text-shadow: 0 2px 8px rgba(0, 0, 0, 0.95),
+                0 4px 16px rgba(0, 0, 0, 0.9),
+                0 0 40px rgba(140, 120, 90, 0.4);
+            padding: 12px 30px;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(10px);
+            border-radius: 8px;
+            border: 1px solid rgba(100, 80, 60, 0.3);
+            text-align: center;
+            max-width: 90%;
+        }
+
+        /* Room description at BOTTOM like subtitles */
+        .room-description {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 100;
+            font-family: "Roboto", sans-serif;
+            font-weight: 300;
+            font-size: 18px;
+            color: #e8e8e8;
+            max-width: 900px;
+            line-height: 1.7;
+            text-align: center;
+            text-shadow: 0 2px 8px rgba(0, 0, 0, 0.95),
+                0 4px 12px rgba(0, 0, 0, 0.9);
+            padding: 15px 30px;
+            background: rgba(0, 0, 0, 0.85);
+            backdrop-filter: blur(12px);
+            border-radius: 6px;
+            border: 1px solid rgba(100, 80, 60, 0.3);
+        }
+
+        /* Highlighted treasure hints within description */
+        .treasure-hint-highlight {
+            color: #f4d799;
+            font-weight: 500;
+            text-shadow: 0 0 10px rgba(244, 215, 153, 0.6),
+                0 0 20px rgba(244, 215, 153, 0.4),
+                0 2px 8px rgba(0, 0, 0, 0.95);
+            background: linear-gradient(180deg, transparent 0%, rgba(212, 168, 87, 0.2) 100%);
+            padding: 0 4px;
+            border-radius: 3px;
+        }
+
+        /* MODALS */
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(0, 0, 0, 0.4);
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal.hidden {
+            display: none;
+        }
+
+        .modal-content {
+            background: rgba(18, 18, 18, 0.98);
+            border: 2px solid rgba(140, 120, 90, 0.6);
+            border-radius: 12px;
+            padding: 30px;
+            max-width: 500px;
+            width: 90%;
+            box-shadow: 0 16px 64px rgba(0, 0, 0, 0.9);
+        }
+
+        /* Victory Modal Specific */
+        .victory-modal .modal-content {
+            border-color: rgba(212, 168, 87, 0.8);
+            background: linear-gradient(135deg, rgba(18, 18, 18, 0.98), rgba(40, 35, 25, 0.98));
+            max-width: 600px;
+        }
+
+        .victory-title {
+            font-size: 48px;
+            font-weight: 900;
+            text-align: center;
+            margin-bottom: 20px;
+            background: linear-gradient(135deg, #f4d799, #d4a857);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            text-shadow: 0 4px 12px rgba(212, 168, 87, 0.3);
+        }
+
+        .victory-message {
+            text-align: center;
+            font-size: 18px;
+            color: #e8d4a8;
+            margin-bottom: 30px;
+            line-height: 1.6;
+        }
+
+        .victory-buttons {
+            display: flex;
+            gap: 15px;
+            margin-top: 25px;
+        }
+
+        .victory-buttons button {
+            flex: 1;
+            padding: 18px;
+            font-size: 15px;
+            font-weight: 600;
+        }
+
+        .victory-buttons button:first-child {
+            background: rgba(140, 120, 90, 0.4);
+            border-color: rgba(140, 120, 90, 0.6);
+        }
+
+        .victory-buttons button:first-child:hover {
+            background: rgba(140, 120, 90, 0.6);
+            border-color: rgba(140, 120, 90, 0.9);
+        }
+
+        .victory-buttons button:last-child {
+            background: rgba(80, 160, 100, 0.4);
+            border-color: rgba(80, 160, 100, 0.6);
+        }
+
+        .victory-buttons button:last-child:hover {
+            background: rgba(80, 160, 100, 0.6);
+            border-color: rgba(80, 160, 100, 0.9);
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .modal-header h3 {
+            color: #e8d4a8;
+            font-size: 24px;
+            font-weight: 700;
+            margin: 0;
+            border: none;
+            padding: 0;
+        }
+
+        .close-btn {
+            background: transparent;
+            border: none;
+            font-size: 28px;
+            color: #999;
+            cursor: pointer;
+            padding: 0;
+            width: 36px;
+            height: 36px;
+            line-height: 1;
+        }
+
+        .close-btn:hover {
+            color: #e8e8e8;
+            transform: none;
+        }
+
+        .proceed-btn {
+            width: 100%;
+            margin-top: 15px;
+            padding: 18px;
+            font-size: 16px;
+            font-weight: 600;
+            background: rgba(140, 120, 90, 0.4);
+            border: 2px solid rgba(140, 120, 90, 0.6);
+        }
+
+        .proceed-btn:hover:not(:disabled) {
+            background: rgba(140, 120, 90, 0.6);
+            border-color: rgba(140, 120, 90, 0.9);
+        }
+
+        /* LOADING OVERLAY - REMOVED (no blackout screen) */
+
         /* Dark themed buttons */
         button {
             background: rgba(40, 35, 30, 0.7);
@@ -350,9 +554,10 @@
         }
 
         button:disabled {
-            opacity: 0.25;
+            opacity: 0.3;
             cursor: not-allowed;
             background: rgba(30, 25, 20, 0.4);
+            pointer-events: none;
         }
 
         /* Dark input */
@@ -415,9 +620,32 @@
 </head>
 
 <body>
-    <!-- Centered viewport for room image -->
-    <div id="room-viewport">
-        <img id="room-image" src="" alt="Room Scene" style="opacity: 0;">
+    <!-- INTERACT Modal -->
+    <div id="interact-modal" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>What do you do?</h3>
+                <button class="close-btn" onclick="closeInteractModal()">✕</button>
+            </div>
+            <input type="text" id="interact-input" placeholder="Describe your action..."
+                onkeypress="handleInteractEnter(event)">
+            <button onclick="executeInteract()" class="proceed-btn">→ PROCEED</button>
+        </div>
+    </div>
+
+    <!-- Victory Modal -->
+    <div id="victory-modal" class="modal victory-modal hidden">
+        <div class="modal-content">
+            <div class="victory-title">🎉 Victory! 🎉</div>
+            <div class="victory-message">
+                You've found all the treasures!<br>
+                The dungeon's secrets are now yours.
+            </div>
+            <div class="victory-buttons">
+                <button onclick="continueExploring()">Continue Exploring</button>
+                <button onclick="createNewWorld()">Create New World</button>
+            </div>
+        </div>
     </div>
 
     <!-- Map tooltip -->
@@ -427,20 +655,13 @@
         <img id="tooltip-img" src="" alt="Room" style="display: none;">
     </div>
 
+    <!-- Centered viewport for room image -->
+    <div id="room-viewport">
+        <img id="room-image" src="" alt="Room Scene" style="opacity: 0;">
+    </div>
+
     <div class="game-container">
-        <!-- MAP -->
-        <div id="map-panel" class="panel">
-            <h3>🗺 Map</h3>
-            <canvas id="map-canvas" width="280" height="400"></canvas>
-        </div>
-
-        <!-- CENTER -->
-        <div id="center-panel">
-            <div class="room-title" id="room-name">Loading...</div>
-            <div class="room-description" id="room-desc">Initializing game...</div>
-        </div>
-
-        <!-- STATUS -->
+        <!-- STATUS - Top Left -->
         <div id="status-panel" class="panel">
             <h3>📊 Status</h3>
             <div class="status-line"><strong>Player:</strong> <span id="player-name">Loading...</span></div>
@@ -449,16 +670,47 @@
                 <strong>Present:</strong>
                 <div id="players-list" class="present-list">Loading...</div>
             </div>
+
+            <!-- Treasure Hints Section -->
+            <div class="treasure-hints" id="treasure-hints-section" style="display: none;">
+                <h4>💎 Treasure Hints</h4>
+                <div id="treasure-hints-list"></div>
+            </div>
+
+            <!-- Back to World Selection Button -->
+            <button onclick="backToWorldSelection()"
+                style="width: 100%; margin-top: 15px; padding: 12px; font-size: 12px;">
+                ← Back to World Selection
+            </button>
         </div>
 
-        <!-- MOVEMENT -->
+        <!-- CENTER - transparent for room image -->
+        <div id="center-panel">
+            <div class="room-title" id="room-name">Loading...</div>
+            <div class="room-description" id="room-desc">Initializing game...</div>
+        </div>
+
+        <!-- MAP - Top Right -->
+        <div id="map-panel" class="panel">
+            <h3>🗺 Map</h3>
+            <canvas id="map-canvas" width="280" height="400"></canvas>
+        </div>
+
+        <!-- EVENTS - Bottom Left -->
+        <div id="events-panel" class="panel">
+            <h3>📜 Events</h3>
+            <div class="events-log" id="events-log">
+                <div class="event system">Initializing game...</div>
+            </div>
+        </div>
+
+        <!-- MOVEMENT - Bottom Right with INTERACT in center -->
         <div id="movement-panel" class="panel">
             <h3>🧭 Movement</h3>
             <div class="movement-grid">
                 <button onclick="sendMove('N')" id="btn-N" class="move-btn">⬆<br>North</button>
                 <button onclick="sendMove('W')" id="btn-W" class="move-btn">⬅<br>West</button>
-                <button onclick="selectAction('OBSERVE')" id="btn-action-OBSERVE"
-                    class="move-btn">👁<br>Observe</button>
+                <button onclick="openInteractModal()" id="btn-interact" class="move-btn">🤝<br>Interact</button>
                 <button onclick="sendMove('E')" id="btn-E" class="move-btn">➡<br>East</button>
                 <button onclick="sendMove('S')" id="btn-S" class="move-btn">⬇<br>South</button>
             </div>
@@ -467,36 +719,16 @@
                 Available: Loading...
             </div>
         </div>
-
-        <!-- ACTIONS -->
-        <div id="actions-panel" class="panel">
-            <h3>⚡ Actions</h3>
-            <div class="action-buttons">
-                <button onclick="selectAction('INTERACT')" id="btn-action-INTERACT" class="action-btn">🤝
-                    Interact</button>
-            </div>
-            <div id="command-input-area" class="command-input-area hidden">
-                <input type="text" id="command-input" placeholder="Type your action..."
-                    onkeypress="handleCommandEnter(event)">
-                <button onclick="executeCommand()" style="margin-top: 12px; width: 100%;">Execute</button>
-            </div>
-        </div>
-
-        <!-- EVENTS -->
-        <div id="events-panel" class="panel">
-            <h3>📜 Events</h3>
-            <div class="events-log" id="events-log">
-                <div class="event system">Initializing game...</div>
-            </div>
-        </div>
     </div>
 
     <script>
         const API_BASE = '';
         let playerId = null;
         let isLoading = false;
-        let selectedAction = null;
-        let currentAudio = null; // For voiceover narration playback
+        let currentAudio = null;
+        let lastPlayedNarrationId = null;
+        let availableExits = []; // Track available exits
+        let victoryModalShown = false; // Track if victory modal has been shown
 
         // Map interaction state
         let mapData = {
@@ -505,7 +737,50 @@
             gridInfo: null
         };
 
-        // Fetch and play voiceover narrations sequentially
+        // Loading state management (no overlay, just disable buttons)
+        function showLoading() {
+            document.querySelectorAll('button, input').forEach(el => {
+                el.disabled = true;
+            });
+        }
+
+        function hideLoading() {
+            document.querySelectorAll('button, input').forEach(el => {
+                el.disabled = false;
+            });
+            updateMovementButtons();
+        }
+
+        // INTERACT Modal functions
+        function openInteractModal() {
+            document.getElementById('interact-modal').classList.remove('hidden');
+            document.getElementById('interact-input').focus();
+        }
+
+        function closeInteractModal() {
+            document.getElementById('interact-modal').classList.add('hidden');
+            document.getElementById('interact-input').value = '';
+        }
+
+        function handleInteractEnter(event) {
+            if (event.key === 'Enter') {
+                executeInteract();
+            }
+        }
+
+        async function executeInteract() {
+            const input = document.getElementById('interact-input');
+            const text = input.value.trim();
+            if (!text) {
+                addEvent('error', 'Please describe what you want to do');
+                return;
+            }
+            closeInteractModal();
+            addEvent('action', `You ${text}`);
+            await sendAction('INTERACT', { description: text });
+        }
+
+        // Fetch and play latest voiceover narration
         async function fetchAndPlayNarration(playerId) {
             try {
                 const response = await fetch(`${API_BASE}/api/narration/${playerId}/latest`);
@@ -516,59 +791,73 @@
 
                 const data = await response.json();
 
-                if (data.narrations && data.narrations.length > 0) {
-                    // Stop current audio if playing
+                if (data.narration && data.narration.id !== lastPlayedNarrationId) {
+                    console.log(`[NARRATION] New narration: ${data.narration.id}`);
+
                     if (currentAudio) {
                         currentAudio.pause();
                         currentAudio.currentTime = 0;
                         currentAudio = null;
                     }
 
-                    // Play narrations sequentially
-                    await playNarrationsSequentially(data.narrations);
+                    await playNarration(data.narration);
+                    lastPlayedNarrationId = data.narration.id;
                 } else {
-                    console.log('[NARRATION] No narrations available');
+                    console.log('[NARRATION] No new narration to play');
                 }
             } catch (error) {
                 console.error('Failed to fetch narration:', error);
             }
         }
 
-        // Play an array of narrations one after another
-        async function playNarrationsSequentially(narrations) {
-            for (const narration of narrations) {
-                if (!narration.audio_url) continue;
+        async function playNarration(narration) {
+            if (!narration.audio_url) {
+                console.log('[NARRATION] No audio URL available');
+                return;
+            }
 
-                try {
-                    // Create audio element
-                    currentAudio = new Audio(narration.audio_url);
+            try {
+                // Disable all buttons while audio plays
+                showLoading();
+                setStatus('Listening...');
 
-                    // Set up error handler
-                    currentAudio.onerror = (e) => {
-                        console.error('Audio playback error:', e);
+                currentAudio = new Audio(narration.audio_url);
+
+                currentAudio.onerror = (e) => {
+                    console.error('Audio playback error:', e);
+                };
+
+                addEvent('system', `🎙️ ${narration.text}`);
+                console.log(`[NARRATION] ${narration.type}: ${narration.text}`);
+
+                await new Promise((resolve, reject) => {
+                    currentAudio.onended = () => {
+                        currentAudio = null;
+                        // Re-enable buttons after audio completes
+                        hideLoading();
+                        setStatus('Ready');
+                        resolve();
                     };
-
-                    // Show narration text
-                    addEvent('system', `🎙️ ${narration.text}`);
-                    console.log(`[NARRATION] ${narration.type}: ${narration.text}`);
-
-                    // Play and wait for completion
-                    await new Promise((resolve, reject) => {
-                        currentAudio.onended = resolve;
-                        currentAudio.onerror = reject;
-                        currentAudio.play().catch(e => {
-                            console.warn('Audio autoplay prevented:', e);
-                            resolve(); // Continue even if autoplay blocked
-                        });
+                    currentAudio.onerror = (e) => {
+                        // Re-enable buttons on error too
+                        hideLoading();
+                        setStatus('Ready');
+                        reject(e);
+                    };
+                    currentAudio.play().catch(e => {
+                        console.warn('Audio autoplay prevented:', e);
+                        // Re-enable buttons if autoplay prevented
+                        hideLoading();
+                        setStatus('Ready');
+                        resolve();
                     });
+                });
 
-                    // Small pause between narrations
-                    await new Promise(resolve => setTimeout(resolve, 300));
-
-                } catch (error) {
-                    console.error('Error playing narration:', error);
-                    // Continue to next narration even if one fails
-                }
+            } catch (error) {
+                console.error('Error playing narration:', error);
+                // Ensure buttons are re-enabled on error
+                hideLoading();
+                setStatus('Ready');
             }
         }
 
@@ -581,8 +870,7 @@
                 return;
             }
             await loadGameState();
-            setInterval(autoRefresh, 10000);
-            addEvent('system', 'Ready! Select an action or move.');
+            addEvent('system', 'Ready! Use movement or click INTERACT.');
         }
 
         async function loadGameState() {
@@ -607,7 +895,11 @@
         async function sendAction(action, params = {}) {
             if (isLoading || !playerId) return;
             isLoading = true;
+            showLoading();
             setStatus('Processing...');
+
+            const isInteractAction = action === 'INTERACT';
+
             try {
                 const response = await fetch(`${API_BASE}/api/action`, {
                     method: 'POST',
@@ -621,10 +913,9 @@
                 }
                 const data = await response.json();
                 if (data.success) {
-                    if (data.state) updateUI(data.state);
+                    if (data.state) updateUI(data.state, isInteractAction);
                     if (data.message) addEvent('system', data.message);
 
-                    // Fetch and play voiceover narration after successful action
                     await fetchAndPlayNarration(playerId);
                 } else {
                     addEvent('error', data.message);
@@ -633,6 +924,7 @@
                 addEvent('error', `Error: ${error.message}`);
             } finally {
                 isLoading = false;
+                hideLoading();
                 setStatus('Ready');
             }
         }
@@ -642,65 +934,71 @@
             await sendAction('MOVE', { direction });
         }
 
-        function selectAction(action) {
-            selectedAction = action;
-            ['INTERACT', 'OBSERVE'].forEach(a => {
-                const btn = document.getElementById(`btn-action-${a}`);
-                if (a === action) btn.classList.add('selected');
-                else btn.classList.remove('selected');
+        function updateMovementButtons() {
+            // Re-disable movement buttons based on stored available exits
+            ['N', 'S', 'E', 'W'].forEach(dir => {
+                const btn = document.getElementById(`btn-${dir}`);
+                if (btn) {
+                    btn.disabled = !availableExits.includes(dir);
+                }
             });
-            const inputArea = document.getElementById('command-input-area');
-            const input = document.getElementById('command-input');
-            if (action === 'OBSERVE') {
-                inputArea.classList.add('hidden');
-                executeCommand();
-            } else {
-                inputArea.classList.remove('hidden');
-                input.placeholder = 'What do you do?';
-                input.focus();
-            }
         }
 
-        function handleCommandEnter(event) {
-            if (event.key === 'Enter') executeCommand();
-        }
-
-        async function executeCommand() {
-            if (!selectedAction) {
-                addEvent('error', 'Select an action first');
-                return;
-            }
-            const input = document.getElementById('command-input');
-            const text = input.value.trim();
-            if (selectedAction === 'INTERACT') {
-                if (!text) { addEvent('error', 'Type what you want to do'); return; }
-                addEvent('action', `You ${text}`);
-                await sendAction('INTERACT', { description: text });
-                input.value = '';
-            } else if (selectedAction === 'OBSERVE') {
-                addEvent('action', 'Observing surroundings...');
-                await sendAction('OBSERVE');
-            }
-            selectedAction = null;
-            document.querySelectorAll('.action-btn').forEach(btn => btn.classList.remove('selected'));
-            document.getElementById('command-input-area').classList.add('hidden');
-        }
-
-        function updateUI(state) {
+        function updateUI(state, forceImageReload = false) {
             document.getElementById('room-name').textContent = state.current_room.name.toUpperCase();
-            document.getElementById('room-desc').textContent = state.current_room.description;
+
+            // Check for victory condition (only show modal once)
+            if (state.objective && state.objective.has_won && !victoryModalShown) {
+                showVictoryModal();
+                victoryModalShown = true;
+            }
+
+            // Highlight treasure hints in room description
+            let description = state.current_room.description;
+            console.log('[HINTS] treasure_hints:', state.treasure_hints);
+
+            if (state.treasure_hints && state.treasure_hints.length > 0) {
+                console.log('[HINTS] Found', state.treasure_hints.length, 'hints in current room');
+
+                // Sort hints by length (longest first) to avoid partial matches
+                const hints = state.treasure_hints.map(h => h.hint).sort((a, b) => b.length - a.length);
+                console.log('[HINTS] Hints to highlight:', hints);
+
+                hints.forEach(hint => {
+                    // Case-insensitive search and replace
+                    const regex = new RegExp(`(${escapeRegex(hint)})`, 'gi');
+                    const before = description;
+                    description = description.replace(regex, '<span class="treasure-hint-highlight">$1</span>');
+                    if (before !== description) {
+                        console.log('[HINTS] Highlighted:', hint);
+                    } else {
+                        console.log('[HINTS] Not found in description:', hint);
+                    }
+                });
+
+                console.log('[HINTS] Final description:', description);
+                document.getElementById('room-desc').innerHTML = description;
+            } else {
+                console.log('[HINTS] No treasure hints in current room');
+                document.getElementById('room-desc').textContent = description;
+            }
 
             // Update viewport image
             const roomImage = document.getElementById('room-image');
             if (state.current_room.image_url) {
-                // Fade out current image
                 roomImage.style.opacity = '0';
 
-                // Load new image
                 setTimeout(() => {
-                    roomImage.src = state.current_room.image_url;
+                    let imageUrl = state.current_room.image_url;
+
+                    if (forceImageReload) {
+                        const separator = imageUrl.includes('?') ? '&' : '?';
+                        imageUrl = `${imageUrl}${separator}_t=${Date.now()}`;
+                        console.log('[IMAGE] Cache-busting enabled - forcing reload');
+                    }
+
+                    roomImage.src = imageUrl;
                     roomImage.onload = () => {
-                        // Fade in new image
                         roomImage.style.opacity = '1';
                     };
                 }, 300);
@@ -713,21 +1011,27 @@
             } else {
                 playersDiv.innerHTML = '<div style="color: rgba(180,180,180,0.4); font-size: 12px;">You are alone</div>';
             }
+
+            // Store available exits for later use
+            availableExits = state.available_exits || [];
+
             const exitsDiv = document.getElementById('exits-info');
-            if (state.available_exits.length > 0) {
-                exitsDiv.textContent = `Available: ${state.available_exits.join(', ')}`;
+            if (availableExits.length > 0) {
+                exitsDiv.textContent = `Available: ${availableExits.join(', ')}`;
                 ['N', 'S', 'E', 'W'].forEach(dir => {
-                    document.getElementById(`btn-${dir}`).disabled = !state.available_exits.includes(dir);
+                    const btn = document.getElementById(`btn-${dir}`);
+                    if (btn) btn.disabled = !availableExits.includes(dir);
                 });
             } else {
                 exitsDiv.textContent = 'No exits';
             }
+
             updateMap(state.known_rooms, state.current_room.coords);
+
             if (state.recent_events && state.recent_events.length > 0) {
                 state.recent_events.forEach(event => addEvent('system', `${event.actor}: ${event.content}`));
             }
 
-            // Setup map interactivity
             setupMapInteractivity();
         }
 
@@ -735,7 +1039,6 @@
             const canvas = document.getElementById('map-canvas');
             if (!canvas) return;
 
-            // Store map data for interactivity
             mapData.rooms = knownRooms;
             mapData.currentCoords = currentCoords;
 
@@ -743,7 +1046,6 @@
             const width = canvas.width;
             const height = canvas.height;
 
-            // Dark background
             ctx.fillStyle = '#0d0d0d';
             ctx.fillRect(0, 0, width, height);
 
@@ -757,7 +1059,6 @@
                 return;
             }
 
-            // Build room map
             const roomsByCoord = {};
             let minX = currentCoords.x, maxX = currentCoords.x;
             let minY = currentCoords.y, maxY = currentCoords.y;
@@ -774,21 +1075,18 @@
             const gridWidth = maxX - minX + 1;
             const gridHeight = maxY - minY + 1;
 
-            // Cell size with spacing between rooms
-            const spacing = 8; // Space between rooms
+            const spacing = 8;
             const cellSize = Math.min(
                 (width - 60 - (gridWidth - 1) * spacing) / gridWidth,
                 (height - 60 - (gridHeight - 1) * spacing) / gridHeight
             );
             const wallThickness = Math.max(2, cellSize * 0.08);
 
-            // Center the grid
             const totalWidth = gridWidth * cellSize + (gridWidth - 1) * spacing;
             const totalHeight = gridHeight * cellSize + (gridHeight - 1) * spacing;
             const offsetX = (width - totalWidth) / 2;
             const offsetY = (height - totalHeight) / 2;
 
-            // Draw coordinate labels
             ctx.font = '9px sans-serif';
             ctx.fillStyle = '#666';
             ctx.textAlign = 'center';
@@ -802,7 +1100,6 @@
                 ctx.fillText(y, offsetX - 10, screenY + 3);
             }
 
-            // Draw rooms
             for (let y = minY; y <= maxY; y++) {
                 for (let x = minX; x <= maxX; x++) {
                     const key = `${x},${y}`;
@@ -814,11 +1111,9 @@
                     const screenY = offsetY + (maxY - y) * (cellSize + spacing);
                     const isCurrent = x === currentCoords.x && y === currentCoords.y;
 
-                    // Room floor
                     ctx.fillStyle = isCurrent ? 'rgba(100, 85, 65, 0.6)' : 'rgba(50, 45, 40, 0.4)';
                     ctx.fillRect(screenX, screenY, cellSize, cellSize);
 
-                    // Walls (brown/grey)
                     const paths = room.paths || [];
                     ctx.strokeStyle = isCurrent ? '#8c7858' : '#5a5045';
                     ctx.lineWidth = wallThickness;
@@ -849,7 +1144,6 @@
                         ctx.stroke();
                     }
 
-                    // Open corridors (lighter color)
                     ctx.strokeStyle = 'rgba(120, 100, 80, 0.4)';
                     ctx.lineWidth = wallThickness * 0.6;
 
@@ -878,7 +1172,6 @@
                         ctx.stroke();
                     }
 
-                    // Player marker
                     if (isCurrent) {
                         const pulse = Math.sin(Date.now() / 400) * 0.15 + 0.85;
                         ctx.fillStyle = '#c9a870';
@@ -898,7 +1191,6 @@
                 }
             }
 
-            // Legend
             ctx.font = '10px sans-serif';
             ctx.fillStyle = '#888';
             ctx.textAlign = 'left';
@@ -916,8 +1208,34 @@
             while (log.children.length > 50) log.removeChild(log.firstChild);
         }
 
+        function escapeRegex(string) {
+            return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        }
+
         function setStatus(text) {
             document.getElementById('status-text').textContent = text;
+        }
+
+        function backToWorldSelection() {
+            // Clear player ID from localStorage
+            localStorage.removeItem('playerId');
+            // Redirect to world selection page
+            window.location.href = '/';
+        }
+
+        // Victory Modal functions
+        function showVictoryModal() {
+            document.getElementById('victory-modal').classList.remove('hidden');
+        }
+
+        function continueExploring() {
+            document.getElementById('victory-modal').classList.add('hidden');
+        }
+
+        function createNewWorld() {
+            // Clear player ID and redirect to world selection
+            localStorage.removeItem('playerId');
+            window.location.href = '/';
         }
 
         function setupMapInteractivity() {
@@ -925,7 +1243,6 @@
             const tooltip = document.getElementById('map-tooltip');
             if (!canvas || !tooltip) return;
 
-            // Remove old listeners
             canvas.onmousemove = null;
             canvas.onmouseleave = null;
 
@@ -934,11 +1251,9 @@
                 const mouseX = e.clientX - rect.left;
                 const mouseY = e.clientY - rect.top;
 
-                // Find which room is under cursor
                 const hoveredRoom = getRoomAtPosition(mouseX, mouseY);
 
                 if (hoveredRoom) {
-                    // Show tooltip
                     document.getElementById('tooltip-title').textContent = hoveredRoom.name;
                     document.getElementById('tooltip-desc').textContent = hoveredRoom.description;
 
@@ -951,7 +1266,10 @@
                     }
 
                     tooltip.classList.add('visible');
-                    tooltip.style.left = (e.clientX + 15) + 'px';
+
+                    // Position tooltip to the LEFT of cursor (more space)
+                    // Offset by tooltip width (300px max) + 15px margin
+                    tooltip.style.left = (e.clientX - 315) + 'px';
                     tooltip.style.top = (e.clientY + 15) + 'px';
                 } else {
                     tooltip.classList.remove('visible');
@@ -970,7 +1288,6 @@
             const width = canvas.width;
             const height = canvas.height;
 
-            // Rebuild grid info (same as in updateMap)
             let minX = mapData.currentCoords.x, maxX = mapData.currentCoords.x;
             let minY = mapData.currentCoords.y, maxY = mapData.currentCoords.y;
 
@@ -994,7 +1311,6 @@
             const offsetX = (width - totalWidth) / 2;
             const offsetY = (height - totalHeight) / 2;
 
-            // Check each room
             for (const room of mapData.rooms) {
                 const screenX = offsetX + (room.coords.x - minX) * (cellSize + spacing);
                 const screenY = offsetY + (maxY - room.coords.y) * (cellSize + spacing);
@@ -1006,10 +1322,6 @@
             }
 
             return null;
-        }
-
-        async function autoRefresh() {
-            if (!isLoading && playerId) await loadGameState();
         }
 
         window.onload = init;

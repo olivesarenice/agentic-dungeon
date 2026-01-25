@@ -11,8 +11,26 @@ from google import genai
 from google.genai import types
 
 from llm.prompt_optimizer import get_prompt_optimizer
+from llm.request_logger import LLMRequestLogger, detect_error_status
 
 load_dotenv()
+
+# Global list to store pending image generation logs
+_pending_image_logs = []
+
+
+def get_pending_image_logs():
+    """Get all pending image generation log entries and clear the list."""
+    global _pending_image_logs
+    logs = _pending_image_logs.copy()
+    _pending_image_logs = []
+    return logs
+
+
+def add_pending_image_log(log_entry):
+    """Add a log entry to the pending list."""
+    global _pending_image_logs
+    _pending_image_logs.append(log_entry)
 
 
 class Text2ImageGenerator:
@@ -20,8 +38,8 @@ class Text2ImageGenerator:
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
-        model_name: Optional[str] = None,
+        api_key: str = os.getenv("GEMINI_API_KEY"),
+        model_name: str = os.getenv("IMAGE_MODEL_NAME"),
         output_dir: str = "generated_images",
     ):
         """
@@ -32,11 +50,11 @@ class Text2ImageGenerator:
             model_name: Model to use for image generation (default: gemini-2.5-flash-image or from .env)
             output_dir: Directory to save generated images
         """
-        self.api_key = api_key or os.environ.get("GOOGLE_API_KEY")
-        if not self.api_key:
-            raise ValueError(
-                "API key not provided and GOOGLE_API_KEY environment variable not set."
-            )
+        # self.api_key = api_key or os.environ.get("GOOGLE_API_KEY")
+        # if not self.api_key:
+        #     raise ValueError(
+        #         "API key not provided and GOOGLE_API_KEY environment variable not set."
+        #     )
 
         self.model_name = model_name or os.environ.get(
             "IMAGE_MODEL_NAME", "gemini-2.5-flash-image"
@@ -45,7 +63,12 @@ class Text2ImageGenerator:
         self.output_dir.mkdir(exist_ok=True)
 
         # Initialize Google genai client
-        self.client = genai.Client(api_key=self.api_key)
+        self.client = genai.Client(
+            # api_key=self.api_key,
+            vertexai=True,
+            location="global",
+            http_options={"api_version": "v1"},
+        )
 
         print(f"Text2Image generator initialized with model: {self.model_name}")
 
@@ -56,7 +79,7 @@ class Text2ImageGenerator:
         aspect_ratio: str = "16:9",
         image_size: str = "2K",
         reference_images: Optional[list[str]] = None,
-        max_retries: int = 3,
+        max_retries: int = 6,
     ) -> str:
         """
         Generate an image from a text prompt and save it to a file.
@@ -67,7 +90,7 @@ class Text2ImageGenerator:
             aspect_ratio: Aspect ratio for the image (e.g., "16:9", "1:1", "9:16", "5:4", "4:3", "3:2", "2:3", "3:4", "4:5", "9:16", "21:9")
             image_size: Size of the image ("1K", "2K", or "4K")
             reference_images: Optional list of image file paths to use as reference (only supported for pro models)
-            max_retries: Maximum number of retry attempts (default: 3)
+            max_retries: Maximum number of retry attempts (default: 6)
 
         Returns:
             Absolute path to the saved image file
@@ -75,18 +98,28 @@ class Text2ImageGenerator:
         Raises:
             Exception: If image generation fails after all retries
         """
+        import random
         import time
 
         from PIL import Image
 
         last_error = None
 
+        retry_count = 0
+        start_time = time.time()
+
         for attempt in range(max_retries):
             try:
                 if attempt > 0:
-                    wait_time = 2**attempt  # Exponential backoff: 2, 4, 8 seconds
+                    retry_count = attempt
+                    # Exponential backoff with jitter for rate limiting
+                    # Base: 5, 10, 20, 40, 60, 60 seconds (capped at 60)
+                    base_wait = min(5 * (2**attempt), 60)
+                    # Add random jitter (0-50% of base wait) to prevent thundering herd
+                    jitter = random.uniform(0, base_wait * 0.5)
+                    wait_time = base_wait + jitter
                     print(
-                        f"Retry attempt {attempt + 1}/{max_retries} after {wait_time}s..."
+                        f"Retry attempt {attempt + 1}/{max_retries} after {wait_time:.1f}s (rate limit backoff)..."
                     )
                     time.sleep(wait_time)
 
@@ -169,14 +202,62 @@ class Text2ImageGenerator:
 
                 absolute_path = str(output_path.absolute())
                 print(f"Image saved to: {absolute_path}")
+
+                # Log successful image generation
+                end_time = time.time()
+                log_entry = LLMRequestLogger.create_log_entry(
+                    function_call="image_generate",
+                    provider="google",
+                    model_id=self.model_name,
+                    prompt=prompt[:2000],  # Truncate long prompts
+                    status=200,
+                    response=absolute_path,  # Store file path for media
+                    retry_count=retry_count,
+                    latency_ms=int((end_time - start_time) * 1000),
+                    error_message=None,
+                )
+                add_pending_image_log(log_entry)
+
                 return absolute_path
 
             except Exception as e:
                 last_error = e
-                print(f"Error on attempt {attempt + 1}/{max_retries}: {e}")
+                error_str = str(e).lower()
+
+                # Check if this is a rate limit error (429)
+                is_rate_limit = (
+                    "429" in str(e)
+                    or "rate" in error_str
+                    or "quota" in error_str
+                    or "resource_exhausted" in error_str
+                )
+
+                if is_rate_limit:
+                    print(
+                        f"⚠️  Rate limit hit on attempt {attempt + 1}/{max_retries}: {e}"
+                    )
+                else:
+                    print(f"Error on attempt {attempt + 1}/{max_retries}: {e}")
+
                 if attempt == max_retries - 1:
-                    # Last attempt failed
-                    print(f"All {max_retries} attempts failed")
+                    # Last attempt failed - log the failure
+                    print(f"❌ All {max_retries} attempts failed")
+
+                    end_time = time.time()
+                    status = detect_error_status(e)
+                    log_entry = LLMRequestLogger.create_log_entry(
+                        function_call="image_generate",
+                        provider="google",
+                        model_id=self.model_name,
+                        prompt=prompt[:2000],
+                        status=status,
+                        response=None,
+                        retry_count=retry_count,
+                        latency_ms=int((end_time - start_time) * 1000),
+                        error_message=str(last_error),
+                    )
+                    add_pending_image_log(log_entry)
+
                     raise Exception(
                         f"Image generation failed after {max_retries} attempts: {last_error}"
                     )
@@ -212,19 +293,26 @@ class Text2ImageGenerator:
         """
         # Build the base structured prompt (used for Pro models or as fallback)
         if reference_image_path:
-            base_prompt = f"""You are an artist for a D&D game.
+            base_prompt = f"""You are an artist for a D&D game. You are EDITING an existing scene.
 
-You draw scenes in the style of: {art_style}
+Art style: {art_style}
 
---- Room Scene Update ---
+--- SCENE EDIT REQUEST ---
 Room: {room_name}
 Updated description: {room_description}
 
 {player_info}
 
-PERSPECTIVE: First-person POV from the center of the room, looking out at the scene. The viewer is standing in the middle of the room with a wide field of view capturing the entire space.
+CRITICAL INSTRUCTIONS FOR EDITING:
+1. COPY the reference image's composition, camera angle, and overall layout EXACTLY
+2. PRESERVE 90% of the original scene - same walls, floor, major objects, lighting direction
+3. ONLY modify the specific element mentioned in the description change
+4. The edited image should feel like the SAME location with a SMALL change
+5. If the reference shows a door, keep the door in the same place
+6. If the reference shows furniture, keep furniture in the same positions
+7. Match the color palette and atmosphere of the reference
 
-IMPORTANT: Use the reference image provided to maintain visual consistency. Keep the same overall composition, lighting, and architectural elements, but update the scene to reflect the new description. The room should feel like the same location, just with modifications based on the updated description."""
+DO NOT generate a completely new scene. This is a MINOR EDIT to the reference image."""
         else:
             base_prompt = f"""You are an artist for a D&D game.
 
@@ -285,7 +373,7 @@ def create_text2img_generator(**kwargs) -> Text2ImageGenerator:
 # --- Example Usage ---
 if __name__ == "__main__":
     try:
-        generator = create_text2img_generator()
+        generator = create_text2img_generator(api_key=os.getenv("GEMINI_API_KEY"))
 
         # Test image generation
         test_prompt = "A mystical forest with glowing mushrooms and ancient ruins"
